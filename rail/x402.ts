@@ -33,14 +33,17 @@ export interface X402Response {
 }
 
 let SERVICE_SEQ = 0;
+// A given on-chain payment tx can be consumed for x402 settlement ONCE, across ALL service instances
+// (closes cross-service replay). Module-level so it is shared by every x402Service. For a multi-process
+// production deployment, back this with a persistent store; here each purchase mints a fresh tx.
+const X402_CONSUMED = new Set<string>();
 
 /** A producer's x402-paywalled service (transport-agnostic core).
  *  The payment is bound to a per-request CHALLENGE (a block height issued on the 402) so an unrelated or
- *  pre-existing transfer to the producer cannot satisfy the paywall, and consumed payments are tracked
- *  per-service to block replay. (On Arc, Circle's facilitator binds payments via signed EIP-712 auth.) */
+ *  pre-existing transfer cannot satisfy the paywall (default-DENY when no live challenge), and each payment
+ *  tx is consumed once globally. (On Arc, Circle's facilitator binds payments via signed EIP-712 auth.) */
 export function x402Service(opts: { payTo: `0x${string}`; price: bigint; produce: () => any }) {
   const serviceId = `svc-${++SERVICE_SEQ}-${opts.payTo.slice(2, 10)}`;
-  const consumed = new Set<string>();
   let challengeBlock = 0n;
 
   return async function handle(paymentRef?: string): Promise<X402Response> {
@@ -57,12 +60,13 @@ export function x402Service(opts: { payTo: `0x${string}`; price: bigint; produce
       return { status: 402, body: { error: "payment required", terms } };
     }
 
-    const key = `${serviceId}:${paymentRef.toLowerCase()}`;
-    if (consumed.has(key)) return { status: 409, body: { error: "payment already used" } };
+    const key = paymentRef.toLowerCase();
+    if (X402_CONSUMED.has(key)) return { status: 409, body: { error: "payment already used" } };
 
     const receipt = await publicClient.getTransactionReceipt({ hash: paymentRef as `0x${string}` });
-    if (challengeBlock > 0n && receipt.blockNumber <= challengeBlock) {
-      return { status: 402, body: { error: "payment predates challenge (unrelated/replayed transfer rejected)" } };
+    // Default-DENY: a valid challenge must have been issued, and the payment must be mined after it.
+    if (challengeBlock === 0n || receipt.blockNumber <= challengeBlock) {
+      return { status: 402, body: { error: "no live challenge / payment predates it (replay rejected)" } };
     }
 
     let paid = 0n;
@@ -79,7 +83,7 @@ export function x402Service(opts: { payTo: `0x${string}`; price: bigint; produce
     if (paid < opts.price) {
       return { status: 402, body: { error: "insufficient payment", paid: paid.toString(), required: opts.price.toString() } };
     }
-    consumed.add(key);
+    X402_CONSUMED.add(key);
     return { status: 200, body: opts.produce() };
   };
 }

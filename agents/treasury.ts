@@ -9,28 +9,33 @@ export class SpendFirewall {
   spent = 0n;
   halted = false;
   haltReason = "";
-  blocks = 0; // how many spends this firewall denied
+  blocks = 0; // all denied spends (any reason)
+  anomalies = 0; // denials that look like an attack (over rate cap / acting while halted)
 
   constructor(
     public readonly budget: bigint,
     public readonly rateCap: bigint,
-    /** Anomaly cutoff: after this many denied spends, the agent is hard-halted (dead-man behaviour). */
+    /** Anomaly cutoff: after this many ANOMALOUS denials, the agent is hard-halted (dead-man behaviour). */
     public readonly anomalyThreshold: number = 3
   ) {}
 
-  private deny(reason: string): { ok: false; reason: string } {
+  private deny(reason: string, anomalous: boolean): { ok: false; reason: string } {
     this.blocks++;
-    // Anomaly cutoff: an agent that keeps trying to overspend (buggy or hijacked) is cut off entirely.
-    if (!this.halted && this.blocks >= this.anomalyThreshold) {
-      this.halt(`anomaly cutoff: ${this.blocks} blocked spends`);
+    if (anomalous) {
+      this.anomalies++;
+      // An agent that keeps trying to overspend (buggy or hijacked) is cut off entirely.
+      if (!this.halted && this.anomalies >= this.anomalyThreshold) {
+        this.halt(`anomaly cutoff: ${this.anomalies} anomalous spends`);
+      }
     }
     return { ok: false, reason };
   }
 
   authorize(amount: bigint): { ok: boolean; reason?: string } {
-    if (this.halted) return this.deny(`halted: ${this.haltReason}`);
-    if (amount > this.rateCap) return this.deny(`exceeds rate cap (${amount} > ${this.rateCap})`);
-    if (this.spent + amount > this.budget) return this.deny("exceeds remaining budget");
+    if (this.halted) return this.deny(`halted: ${this.haltReason}`, true);
+    if (amount > this.rateCap) return this.deny(`exceeds rate cap (${amount} > ${this.rateCap})`, true);
+    // Benign: simply out of budget — does NOT count toward the anomaly halt.
+    if (this.spent + amount > this.budget) return this.deny("exceeds remaining budget", false);
     return { ok: true };
   }
 

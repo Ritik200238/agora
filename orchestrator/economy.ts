@@ -228,6 +228,17 @@ export class Economy {
     const producer = this.society.byRole("producer")[0];
     const consumers = this.society.byRole("consumer");
     if (!producer || consumers.length === 0) return;
+
+    // Local settles via real on-chain x402; the Arc (Circle Gateway) path needs the producer's facilitator
+    // endpoint (PRODUCER_X402_URL). If it's missing on Arc, SKIP with a VISIBLE log — never fail silently.
+    const arcEndpoint = process.env.PRODUCER_X402_URL;
+    if (SETTLEMENT_MODE === "arc" && !arcEndpoint) {
+      if (this.tickN === 3) {
+        this.log("x402_sale", `🛰️ x402 Gateway sales skipped on Arc — set PRODUCER_X402_URL to a producer Gateway endpoint to enable (jobs + streams still settle on-chain)`, {});
+      }
+      return;
+    }
+
     const consumer = consumers[this.tickN % consumers.length];
     const price = usd(0.01);
     const auth = consumer.firewall.authorize(price);
@@ -237,7 +248,7 @@ export class Economy {
       return;
     }
     try {
-      await x402Buy(consumer.wallet, producer.address, price, () => ({ feed: producer.name, point: this.tickN }));
+      await x402Buy(consumer.wallet, producer.address, price, () => ({ feed: producer.name, point: this.tickN }), arcEndpoint);
       consumer.firewall.record(price);
       consumer.spent += price;
       producer.earned += price;
@@ -246,8 +257,9 @@ export class Economy {
       this.log("x402_sale", `🛰️ ${consumer.name} bought a data point from ${producer.name} over x402 — $${fmtUsd(price)} [${SETTLEMENT_MODE}]`, {
         amount: price.toString(),
       });
-    } catch {
-      /* x402 purchase failed (e.g. arc endpoint not configured) */
+    } catch (e) {
+      // surface the failure rather than swallowing it
+      this.log("x402_sale", `⚠️ x402 purchase failed (${consumer.name} → ${producer.name}): ${String((e as Error)?.message ?? e).slice(0, 100)}`, {});
     }
   }
 

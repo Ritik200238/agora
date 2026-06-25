@@ -67,7 +67,7 @@ flowchart TB
 ```bash
 npm install
 npm run compile        # compile contracts
-npm test               # contract tests (11) + full end-to-end economy test
+npm test               # contract tests (14) + full end-to-end economy test
 npm run dashboard      # boot chain + economy + live dashboard → http://localhost:4000
 ```
 
@@ -88,8 +88,9 @@ npm run deploy:local       # deploy onto a running local node
 
 ## What's verified (actually run, not stubbed)
 
-- **`npm run test:contracts`** — 11 Hardhat tests: escrow lifecycle, payout splits, **fraud→slash**
-  (incl. bond-capped slashing), expiry refunds, and every authorization guard.
+- **`npm run test:contracts`** — 14 Hardhat tests: escrow lifecycle, payout splits, **fraud→slash of the
+  locked bond**, enforced-collateral (postJob reverts if uncollateralized), locked-bond-can't-be-withdrawn,
+  self-deal & owner-rug guards, soulbound passports, gated validation, expiry, and every auth guard.
 - **`npm run test:runtime`** — the TS runtime + rail against a real spawned chain: registration, a pass-job,
   a fraud-job→slash, FlowMeter metered streaming + fail-closed budget, and x402 pay-to-use.
 - **`npm run test:e2e`** — boots the full economy for 20 ticks and asserts, against **real on-chain state**:

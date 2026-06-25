@@ -106,23 +106,27 @@ export class MeteredStream {
   /** Batched settlement: re-derive the receipt from the stream's authorized fields, verify the signature
    *  was produced by THIS stream's consumer, then settle the owed delta to the bound producer. */
   async settle(): Promise<{ amount: bigint; ref: string } | null> {
-    const owed = this.owed();
-    if (owed <= 0n) return null;
+    if (this.receipts.length === 0) return null;
     const last = this.receipts[this.receipts.length - 1];
+    // Anchor settlement to the VERIFIED receipt's units (re-derived), not a mutable cumulative field.
+    const verifiedAmount = last.cumulativeUnits * this.ratePerUnit;
+    const owed = verifiedAmount - this.settledAmount;
+    if (owed <= 0n) return null;
+
     const expected = receiptMessage({
       streamId: this.id,
       producer: this.producer,
       ratePerUnit: this.ratePerUnit,
       chainId: this.chainId,
       units: last.cumulativeUnits,
-      amount: last.cumulativeUnits * this.ratePerUnit, // re-derive; ignore any asserted amount
+      amount: verifiedAmount,
     });
     const recovered = await recoverMessageAddress({ message: expected, signature: last.signature });
     if (recovered.toLowerCase() !== this.consumer.account.address.toLowerCase()) {
       throw new Error(`FLOWMETER: receipt not signed by the authorized consumer on ${this.id}`);
     }
     const { ref } = await this.settlement.pay(this.consumer, this.producer, owed, `stream:${this.id}`);
-    this.settledAmount = this.cumulativeAmount;
+    this.settledAmount = verifiedAmount;
     return { amount: owed, ref };
   }
 }

@@ -101,6 +101,7 @@ contract JobBoard is ReentrancyGuard {
             brokerId == 0 || (brokerId != clientId && brokerId != workerId && brokerId != validatorId),
             "broker not distinct"
         );
+        if (brokerId != 0) identity.ownerOf(brokerId); // fail-fast on a bogus/unregistered broker
         // The validator must be a registered validator-role agent (disinterested third party).
         require(keccak256(bytes(identity.role(validatorId))) == VALIDATOR_ROLE, "validator role required");
         require(amount > 0, "amount=0");
@@ -165,7 +166,7 @@ contract JobBoard is ReentrancyGuard {
             // effects before interactions
             j.status = Status.Completed;
             jobsCompleted += 1;
-            totalSettled += workerPay;
+            totalSettled += j.amount; // full escrow settled to provider(s): worker + broker + validator
             bond.unlock(workerW, j.bondLocked);
             reputation.giveFeedback(j.workerId, REP_PASS, true, ref);
             if (j.brokerId != 0) reputation.giveFeedback(j.brokerId, REP_PASS / 5, true, ref);
@@ -186,11 +187,14 @@ contract JobBoard is ReentrancyGuard {
         }
     }
 
-    /// @notice After the deadline: refund the client, unlock the worker's bond (a no-show is not proven
-    ///         fraud), and ding the worker's reputation.
+    /// @notice After the deadline, an UNCLAIMED (Open, never-submitted) job can be expired: refund the
+    ///         client, unlock the worker's bond (a no-show is not proven fraud), ding reputation.
+    /// @dev    Only `Open` jobs expire. A `Submitted` job must be resolved by `validate()` (which has no
+    ///         deadline) — otherwise a worker could front-run the validator past the deadline to downgrade a
+    ///         deserved slash into a no-fault refund.
     function expire(uint256 jobId) external nonReentrant {
         Job storage j = jobs[jobId];
-        require(j.status == Status.Open || j.status == Status.Submitted, "not expirable");
+        require(j.status == Status.Open, "only open jobs are expirable");
         require(block.timestamp > j.deadline, "not past deadline");
 
         j.status = Status.Expired;
