@@ -1,9 +1,9 @@
 # 🏛️ Agora — the self-running agent economy on Arc
 
 **Don't build a payments demo — boot up an economy and let it run.** Agora is a self-sustaining society
-of autonomous AI agents that **hire, pay, rate, and compete** with each other 24/7, settling **USDC on Arc**.
-The agents are *both supply and demand*, so the economy generates its own on-chain volume — with zero humans,
-zero ad spend, and free testnet funds.
+of autonomous AI agents that **hire, pay, rate, and compete** with each other 24/7, settling **USDC on-chain**
+(a local EVM in the runnable demo; Arc Testnet with funded keys). The agents are *both supply and demand*, so
+the economy generates its own **internal** on-chain volume — with zero humans, zero ad spend, and free funds.
 
 > **FlowMeter** is its payment heart · **ERC-8004** is its trust layer · **ERC-8183** escrow settles every job.
 > Full product spec: [`tdd.md`](./tdd.md).
@@ -56,8 +56,8 @@ flowchart TB
 | **ERC-8004 Validation** | `contracts/ValidationRegistry.sol` — request/respond attestation log |
 | **ERC-8183 job escrow** | `contracts/JobBoard.sol` — fund → submit → validate → settle/slash |
 | **Reputation-as-collateral** | `contracts/ReputationBond.sol` — post/withdraw/slash USDC bonds |
-| **x402 service boundary** | `rail/x402.ts` — local (on-chain-verified pay-to-use) + Arc (Circle Gateway via `@circle-fin/x402-batching`) |
-| **Circle Gateway / Nanopayments** | `rail/x402.ts` `arcGatewayPay()` / `arcGatewayMiddleware()` — Arc batched settlement |
+| **x402 service boundary** | `rail/x402.ts` — challenge-bound pay-to-use; LIVE in the economy (`x402Buy`), settled locally by a real on-chain USDC transfer |
+| **Circle Gateway / Nanopayments** | `rail/x402.ts` `arcGatewayPay()` / `arcGatewayMiddleware()` — the Arc settlement branch selected by `SETTLEMENT=arc`. SDK-correct + wired, but **runs only on Arc with funded keys (not exercised in CI)** |
 | **Treasury / spend policy** | `agents/treasury.ts` — fail-closed budgets + rate caps |
 
 ---
@@ -118,17 +118,29 @@ AGORA_NETWORK=arcTestnet SETTLEMENT=arc npm run economy
 
 ---
 
-## How it maps to the judging rubric
+## How it maps to the judging rubric (with honest caveats)
 
-- **Agentic (30%)** — agents autonomously discover, route, deliver, validate, pay, rate, specialize, and
-  self-govern budgets; emergent slashing + freeze-out of the fraudster.
+- **Agentic (30%)** — agents autonomously discover, route, deliver, validate, pay, and rate; the broker
+  reputation-gates routing so a slashed fraudster is **frozen out** — a real emergent dynamic. *Honest:* the
+  fraud + hijack beats are deliberately injected on cue for the demo; worker skills are assigned, not discovered.
 - **Traction (30%)** — a 24/7 economy generates real on-chain USDC transactions with zero humans and zero
-  spend. *Honesty:* this is self-generated (agents are both sides); the `slashEvents`/internal counters report
-  genuine vs. internal activity, and `rail/x402.ts` is wired so external agents can pay in via the x402 boundary.
-- **Circle use (20%)** — the full stack: USDC, ERC-8004 (identity/reputation/validation), ERC-8183 escrow,
-  reputation bonds, the FlowMeter rail, and the x402 / Circle Gateway boundary.
-- **Innovation (20%)** — an emergent *economic* agent society settling real on-chain value, with
-  reputation-as-collateral + proof-of-flow metering. (Stanford's Smallville was *social*; Agora is *economic*.)
+  spend. **This volume is 100% self-generated (agents are both sides)** — the snapshot labels it `internalVolume`
+  and reports `externalVolume` separately (currently **0**; the `x402Buy` boundary is open for non-agent payins,
+  none have occurred). We do not claim external traction.
+- **Circle use (20%)** — *runs in the demo:* USDC settlement (ERC-20), ERC-8004 (identity/reputation/validation),
+  ERC-8183 escrow, reputation bonds, the FlowMeter rail, and the x402 pay-to-use boundary. *Wired for Arc but
+  NOT exercised in CI:* Circle **Gateway / Nanopayments** via `@circle-fin/x402-batching` (the `SETTLEMENT=arc`
+  branch of `x402Buy` / `arcGatewayPay`). The running economy settles via on-chain USDC transfers, not Gateway.
+- **Innovation (20%)** — an *economic* agent society settling real on-chain value, with **enforced**
+  reputation-as-collateral (locked + slashed), an on-chain-derived validator verdict, and proof-of-flow
+  metering. *Honest:* prices/fees are fixed constants — there is no price-discovery / market-maker layer yet,
+  so this is emergent *trust + routing*, not emergent *pricing*.
+
+### What runs vs. what's wired (read this)
+- **Runs + tested locally:** the entire economy on a local EVM — contracts, escrow, real slashing, FlowMeter,
+  and the x402 boundary (settled by real on-chain USDC transfers). `npm test` proves it.
+- **Wired, SDK-correct, but unexecuted here:** Circle Gateway/Nanopayments on **Arc Testnet** (needs a
+  faucet-funded key) and a verified Arc deployment. Same code, different network — not run in this environment.
 
 ---
 

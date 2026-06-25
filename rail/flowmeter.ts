@@ -1,63 +1,95 @@
 import { recoverMessageAddress } from "viem";
-import { type Wallet } from "../shared/chain";
+import { activeChain, type Wallet } from "../shared/chain";
 import { type Settlement } from "./settlement";
 
 /**
  * FlowMeter — the payment heart of Agora.
  *
- * A per-unit / per-second metered stream secured by consumer-signed PROOF-OF-FLOW receipts:
- * the producer delivers work, the consumer signs a receipt acknowledging cumulative delivered
- * units, and the meter advances ONLY on signed receipts. Spend is hard-capped by `budget`
- * (fail-closed: a runaway producer cannot bill past the authorized budget). Owed value is settled
- * in BATCHES through the pluggable Settlement backend (mirrors Circle Gateway's batched model).
+ * A per-unit / per-second metered stream secured by consumer-signed PROOF-OF-FLOW receipts. Each receipt
+ * is bound to the stream id, the PRODUCER (recipient), the RATE, and the CHAIN — so a receipt cannot be
+ * replayed for a different producer/rate/stream — and the owed amount is RE-DERIVED as units*rate (never a
+ * caller-asserted figure). Spend is hard-capped by `budget` (fail-closed). At settle, the signature is
+ * recovered and checked against the stream's AUTHORIZED consumer (not a self-asserted field). Owed value is
+ * settled in batches through the pluggable Settlement backend (mirrors Circle Gateway's batched model).
+ *
+ * Caveat (honest): this proves the consumer co-signed receipt of N units at a bound rate; it does not by
+ * itself prove the producer delivered *correct content* (that is a separate validation concern). The budget
+ * cap + per-unit co-signing bound the blast radius.
  */
 
 export interface FlowReceipt {
   streamId: string;
+  producer: `0x${string}`;
+  ratePerUnit: bigint;
+  chainId: number;
   cumulativeUnits: bigint;
-  cumulativeAmount: bigint; // USDC (6dp)
+  cumulativeAmount: bigint;
   signer: `0x${string}`;
   signature: `0x${string}`;
 }
 
-function receiptMessage(id: string, units: bigint, amount: bigint): string {
-  return `agora-flowmeter:v1:${id}:units=${units}:amount=${amount}`;
+function receiptMessage(r: {
+  streamId: string;
+  producer: `0x${string}`;
+  ratePerUnit: bigint;
+  chainId: number;
+  units: bigint;
+  amount: bigint;
+}): string {
+  return [
+    "agora-flowmeter:v2",
+    `stream=${r.streamId}`,
+    `producer=${r.producer.toLowerCase()}`,
+    `rate=${r.ratePerUnit}`,
+    `chain=${r.chainId}`,
+    `units=${r.units}`,
+    `amount=${r.amount}`,
+  ].join("|");
 }
 
 export class MeteredStream {
   cumulativeUnits = 0n;
-  cumulativeAmount = 0n; // signed/authorized by consumer
+  cumulativeAmount = 0n; // always re-derived as cumulativeUnits * ratePerUnit
   settledAmount = 0n;
   receipts: FlowReceipt[] = [];
   halted = false;
+  readonly chainId = activeChain.id;
 
   constructor(
     public readonly id: string,
     private readonly consumer: Wallet,
     public readonly producer: `0x${string}`,
-    public readonly ratePerUnit: bigint, // USDC (6dp) per unit
-    public readonly budget: bigint, // rate-authorization ceiling
+    public readonly ratePerUnit: bigint,
+    public readonly budget: bigint,
     private readonly settlement: Settlement
   ) {}
 
-  /** Producer delivers `units`; consumer co-signs a proof-of-flow receipt. Fail-closed at budget. */
+  /** Producer delivers `units`; consumer co-signs a receipt bound to (stream, producer, rate, chain). */
   async deliver(units: bigint): Promise<FlowReceipt> {
     if (this.halted) throw new Error(`stream ${this.id} is halted`);
     const newUnits = this.cumulativeUnits + units;
-    const newAmount = newUnits * this.ratePerUnit;
+    const newAmount = newUnits * this.ratePerUnit; // RE-DERIVED, never asserted
     if (newAmount > this.budget) {
       this.halted = true;
       throw new Error(`FLOWMETER: budget exceeded on ${this.id} — stream halted (fail-closed)`);
     }
-    const signature = (await this.consumer.signMessage({
-      account: this.consumer.account,
-      message: receiptMessage(this.id, newUnits, newAmount),
-    })) as `0x${string}`;
+    const message = receiptMessage({
+      streamId: this.id,
+      producer: this.producer,
+      ratePerUnit: this.ratePerUnit,
+      chainId: this.chainId,
+      units: newUnits,
+      amount: newAmount,
+    });
+    const signature = (await this.consumer.signMessage({ account: this.consumer.account, message })) as `0x${string}`;
 
     this.cumulativeUnits = newUnits;
     this.cumulativeAmount = newAmount;
     const receipt: FlowReceipt = {
       streamId: this.id,
+      producer: this.producer,
+      ratePerUnit: this.ratePerUnit,
+      chainId: this.chainId,
       cumulativeUnits: newUnits,
       cumulativeAmount: newAmount,
       signer: this.consumer.account.address,
@@ -71,17 +103,23 @@ export class MeteredStream {
     return this.cumulativeAmount - this.settledAmount;
   }
 
-  /** Batched settlement: verify the latest proof-of-flow receipt, then settle the owed delta. */
+  /** Batched settlement: re-derive the receipt from the stream's authorized fields, verify the signature
+   *  was produced by THIS stream's consumer, then settle the owed delta to the bound producer. */
   async settle(): Promise<{ amount: bigint; ref: string } | null> {
     const owed = this.owed();
     if (owed <= 0n) return null;
     const last = this.receipts[this.receipts.length - 1];
-    const recovered = await recoverMessageAddress({
-      message: receiptMessage(this.id, last.cumulativeUnits, last.cumulativeAmount),
-      signature: last.signature,
+    const expected = receiptMessage({
+      streamId: this.id,
+      producer: this.producer,
+      ratePerUnit: this.ratePerUnit,
+      chainId: this.chainId,
+      units: last.cumulativeUnits,
+      amount: last.cumulativeUnits * this.ratePerUnit, // re-derive; ignore any asserted amount
     });
-    if (recovered.toLowerCase() !== last.signer.toLowerCase()) {
-      throw new Error(`FLOWMETER: invalid proof-of-flow receipt on ${this.id}`);
+    const recovered = await recoverMessageAddress({ message: expected, signature: last.signature });
+    if (recovered.toLowerCase() !== this.consumer.account.address.toLowerCase()) {
+      throw new Error(`FLOWMETER: receipt not signed by the authorized consumer on ${this.id}`);
     }
     const { ref } = await this.settlement.pay(this.consumer, this.producer, owed, `stream:${this.id}`);
     this.settledAmount = this.cumulativeAmount;
