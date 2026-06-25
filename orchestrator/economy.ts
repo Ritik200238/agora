@@ -5,7 +5,7 @@ import { usd, fmtUsd, usdcApprove } from "../shared/usdc";
 import * as A from "../shared/contracts";
 import { ChainSettlement } from "../rail/settlement";
 import { FlowMeter, MeteredStream } from "../rail/flowmeter";
-import { makeTask, deliver, verify, deliverableHash, TASK_KINDS, type Task, type TaskKind } from "../agents/tasks";
+import { makeTask, deliver, verify, solve, deliverableHash, TASK_KINDS, type Task, type TaskKind } from "../agents/tasks";
 import { type Society } from "../agents/society";
 import { Agent } from "../agents/agent";
 
@@ -135,8 +135,11 @@ export class Economy {
         await A.submitJob(ctx.worker.wallet, ctx.jobId, deliverableHash(answer));
         ctx.state = "Submitted";
       } else {
-        const passed = verify(ctx.task, ctx.answer!);
-        await A.validateJob(ctx.validator.wallet, ctx.jobId, passed);
+        // The validator INDEPENDENTLY re-executes the task and submits its answer hash;
+        // the contract derives the verdict by comparing it to the worker's deliverable.
+        const validatorAnswerHash = deliverableHash(solve(ctx.task));
+        await A.validateJob(ctx.validator.wallet, ctx.jobId, validatorAnswerHash);
+        const passed = verify(ctx.task, ctx.answer!); // same verdict the chain just derived
         if (passed) {
           ctx.worker.jobsDone++;
           ctx.worker.earned += ctx.amount;

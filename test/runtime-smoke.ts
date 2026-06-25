@@ -63,7 +63,7 @@ async function main() {
     });
     const w0 = await usdcBalance(D.usdc, worker.account.address);
     await A.submitJob(worker, job1, H32("22"));
-    await A.validateJob(validator, job1, true);
+    await A.validateJob(validator, job1, H32("22")); // validator's recomputed hash matches → pass
     check("worker paid on pass", (await usdcBalance(D.usdc, worker.account.address)) > w0);
     check("worker reputation +10", (await A.scoreOf(workerId)) === 10n);
     check("job1 status Completed", (await A.getJob(job1)).status === "Completed");
@@ -76,7 +76,7 @@ async function main() {
     });
     const fb0 = await A.bondOf(fraud.account.address);
     await A.submitJob(fraud, job2, H32("44"));
-    await A.validateJob(validator, job2, false);
+    await A.validateJob(validator, job2, H32("99")); // recomputed hash differs → fail → slash
     check("fraud bond slashed", (await A.bondOf(fraud.account.address)) < fb0);
     check("fraud reputation negative", (await A.scoreOf(fraudId)) < 0n);
     check("job2 status Rejected", (await A.getJob(job2)).status === "Rejected");

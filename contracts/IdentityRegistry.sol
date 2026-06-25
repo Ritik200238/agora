@@ -37,4 +37,12 @@ contract IdentityRegistry is ERC721 {
     function isRegistered(address wallet) external view returns (bool) {
         return agentOf[wallet] != 0;
     }
+
+    /// @dev Soulbound: passports can be minted but never transferred (would break the one-wallet-one-agent
+    ///      identity invariant and let job payouts/reputation follow a transferred token). Mint only.
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+        address from = _ownerOf(tokenId);
+        require(from == address(0), "soulbound: non-transferable");
+        return super._update(to, tokenId, auth);
+    }
 }

@@ -28,6 +28,9 @@ async function deployAll() {
     usdcIsMock = true;
   }
 
+  // Neutral sink for slashed collateral (never a job party). Override with TREASURY for Arc.
+  const treasury = process.env.TREASURY || deployer.address;
+
   const identity = await dep("IdentityRegistry");
   const reputation = await dep("ReputationRegistry");
   const validation = await dep("ValidationRegistry");
@@ -38,18 +41,26 @@ async function deployAll() {
     identity.target,
     reputation.target,
     validation.target,
-    bond.target
+    bond.target,
+    treasury
   );
 
-  // Authority: only the JobBoard may report reputation + slash bonds.
+  // Authority: only the JobBoard may report reputation, lock/slash bonds, and write validations.
   await (await reputation.setReporter(jobBoard.target, true)).wait();
-  await (await bond.setSlasher(jobBoard.target, true)).wait();
+  await (await bond.setManager(jobBoard.target, true)).wait();
+  await (await validation.initialize(jobBoard.target)).wait();
+
+  // Lock it down: renounce ownership so NO key (incl. the deployer) can add a rogue reporter/manager
+  // and forge reputation or drain bonds. Authority is now immutable.
+  await (await reputation.renounceOwnership()).wait();
+  await (await bond.renounceOwnership()).wait();
 
   const out = {
     network: network.name,
     chainId: Number((await ethers.provider.getNetwork()).chainId),
     usdc: usdcAddr,
     usdcIsMock,
+    treasury,
     identity: identity.target,
     reputation: reputation.target,
     validation: validation.target,
