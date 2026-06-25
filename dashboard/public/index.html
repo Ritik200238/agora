@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agora — the self-running agent economy on Arc</title>
+<style>
+  :root {
+    --bg:#0a0e14; --panel:#111824; --panel2:#0d1420; --line:#1e2a3a;
+    --text:#e6edf3; --dim:#8595a8; --green:#3fb950; --red:#f85149;
+    --amber:#d29922; --blue:#58a6ff; --purple:#bc8cff; --gold:#e3b341;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .mono { font-family:"SF Mono", "Cascadia Code",Consolas,Menlo,monospace; }
+  header { padding:20px 28px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:20px; margin:0; letter-spacing:.3px; }
+  h1 .tag { color:var(--gold); }
+  .sub { color:var(--dim); font-size:13px; margin-top:4px; }
+  .live { display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--green); box-shadow:0 0 10px var(--green); animation:pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .wrap { padding:22px 28px; max-width:1400px; margin:0 auto; }
+  .stats { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; margin-bottom:22px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .card .k { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.6px; }
+  .card .v { font-size:30px; font-weight:650; margin-top:6px; }
+  .card.gdp .v { color:var(--green); }
+  .card.slash .v { color:var(--red); }
+  .card.fw .v { color:var(--amber); }
+  .grid { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.7px; color:var(--dim);
+    margin:0; padding:14px 18px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:9px 18px; border-bottom:1px solid var(--panel2); }
+  th { color:var(--dim); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  tr.fraud td { color:var(--red); }
+  tr.fraud .badge { background:rgba(248,81,73,.15); color:var(--red); }
+  .badge { font-size:10px; padding:2px 7px; border-radius:20px; background:#1c2a3a; color:var(--dim); text-transform:uppercase; letter-spacing:.4px; }
+  .role-worker{color:var(--blue)} .role-validator{color:var(--purple)} .role-producer{color:var(--gold)}
+  .role-broker{color:#7ee787} .role-consumer{color:var(--dim)}
+  .score-pos{color:var(--green)} .score-neg{color:var(--red)} .score-zero{color:var(--dim)}
+  .feed { height:520px; overflow-y:auto; padding:6px 0; }
+  .ev { padding:7px 18px; border-bottom:1px solid var(--panel2); font-size:13px; display:flex; gap:10px; }
+  .ev .t { color:var(--dim); min-width:34px; } .ev.job_completed{} .ev.job_completed .m{color:var(--green)}
+  .ev.job_rejected .m{color:var(--red); font-weight:600} .ev.firewall_block .m{color:var(--amber); font-weight:600}
+  .ev.stream_settled .m{color:var(--blue)} .ev.job_posted .m{color:var(--dim)}
+  .btns { display:flex; gap:10px; }
+  button { background:#17202e; color:var(--text); border:1px solid var(--line); border-radius:8px;
+    padding:8px 14px; font-size:13px; cursor:pointer; } button:hover{ border-color:#2d4055; }
+  button.danger{ border-color:#5a2a2a; color:#ffb3ad; } button.danger:hover{ background:#2a1414; }
+  .spec { display:flex; gap:18px; flex-wrap:wrap; padding:14px 18px; }
+  .spec .grp { font-size:12px; } .spec .grp .h{ color:var(--dim); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
+  .spec .grp .w{ color:var(--blue); }
+  footer{ color:var(--dim); font-size:12px; text-align:center; padding:18px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🏛️ <b>Agora</b> — <span class="tag">the self-running agent economy</span> on Arc</h1>
+    <div class="sub">Autonomous agents hire, pay, rate &amp; compete — settling USDC, 24/7. Not a payments demo; an economy.</div>
+  </div>
+  <div style="display:flex; align-items:center; gap:18px;">
+    <div class="btns">
+      <button onclick="inject('inject-fraud')">⚠️ Inject fraud</button>
+      <button class="danger" onclick="inject('hijack')">🛡️ Simulate hijack</button>
+    </div>
+    <div class="live"><span class="dot"></span><span id="liveLabel">live · localhost</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="stats">
+    <div class="card gdp"><div class="k">GDP (USDC settled)</div><div class="v mono" id="gdp">$0</div></div>
+    <div class="card"><div class="k">Jobs completed</div><div class="v mono" id="done">0</div></div>
+    <div class="card slash"><div class="k">Fraud slashed</div><div class="v mono" id="slashed">$0</div></div>
+    <div class="card fw"><div class="k">Firewall blocks</div><div class="v mono" id="fw">0</div></div>
+    <div class="card"><div class="k">Tick</div><div class="v mono" id="tick">0</div></div>
+    <div class="card"><div class="k">Agents</div><div class="v mono" id="agents">0</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Reputation leaderboard <span id="lbnote">on-chain ERC-8004</span></h2>
+      <table>
+        <thead><tr><th>Agent</th><th>Role</th><th>Skill</th><th>Score</th><th>Bond</th><th>Earned</th><th>Jobs</th></tr></thead>
+        <tbody id="board"></tbody>
+      </table>
+      <h2 style="border-top:1px solid var(--line)">Specialization</h2>
+      <div class="spec" id="spec"></div>
+    </div>
+    <div class="panel">
+      <h2>Live economy feed</h2>
+      <div class="feed" id="feed"></div>
+    </div>
+  </div>
+</div>
+<footer>Agora · Circle Agent Stack primitives on Arc · ERC-8004 trust + ERC-8183 escrow + FlowMeter rail</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtScore = (s) => s>0 ? `<span class="score-pos">+${s}</span>` : s<0 ? `<span class="score-neg">${s}</span>` : `<span class="score-zero">0</span>`;
+
+function renderSnapshot(s) {
+  $("gdp").textContent = "$" + s.gdp;
+  $("done").textContent = s.jobsCompleted;
+  $("slashed").textContent = "$" + s.slashed;
+  $("fw").textContent = s.firewallBlocks;
+  $("tick").textContent = s.tick;
+  $("agents").textContent = s.agents;
+
+  const rows = s.leaderboard.map(a => `
+    <tr class="${a.honest===false ? 'fraud':''}">
+      <td><b>${a.name}</b> ${a.honest===false?'<span class="badge">fraud</span>':''}</td>
+      <td class="role-${a.role}">${a.role}</td>
+      <td>${a.skill||'—'}</td>
+      <td class="mono">${fmtScore(a.score)}</td>
+      <td class="mono">${a.bond!=null?'$'+a.bond:'—'}</td>
+      <td class="mono">$${a.earned}</td>
+      <td class="mono">${a.jobsDone}${a.jobsFailed?` <span class="score-neg">/${a.jobsFailed}✗</span>`:''}</td>
+    </tr>`).join("");
+  $("board").innerHTML = rows;
+
+  const workers = s.leaderboard.filter(a=>a.role==="worker");
+  const skills = [...new Set(workers.map(w=>w.skill))];
+  $("spec").innerHTML = skills.map(sk => {
+    const ws = workers.filter(w=>w.skill===sk && w.score>=0).map(w=>w.name).join(", ") || "—";
+    return `<div class="grp"><div class="h">${sk}</div><div class="w">${ws}</div></div>`;
+  }).join("");
+}
+
+function addEvent(e) {
+  if (e.kind === "tick") return;
+  const feed = $("feed");
+  const div = document.createElement("div");
+  div.className = "ev " + e.kind;
+  div.innerHTML = `<span class="t mono">t${e.t}</span><span class="m">${e.msg}</span>`;
+  feed.prepend(div);
+  while (feed.children.length > 120) feed.removeChild(feed.lastChild);
+}
+
+async function inject(path) {
+  await fetch("/api/" + path, { method:"POST" });
+}
+
+fetch("/api/info").then(r=>r.json()).then(i=>{ $("liveLabel").textContent = "live · " + i.network; });
+fetch("/api/snapshot").then(r=>r.json()).then(renderSnapshot).catch(()=>{});
+
+const es = new EventSource("/api/events");
+es.addEventListener("snapshot", (m) => renderSnapshot(JSON.parse(m.data)));
+es.onmessage = (m) => { try { addEvent(JSON.parse(m.data)); } catch(_){} };
+</script>
+</body>
+</html>
