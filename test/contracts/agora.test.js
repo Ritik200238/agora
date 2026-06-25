@@ -183,4 +183,39 @@ describe("Agora contracts (hardened)", function () {
       expect((await jobBoard.getJob(jobId)).status).to.equal(5n);
     });
   });
+
+  describe("Lock/slash accounting + edge cases", () => {
+    it("rejects a job too small to collateralize (amount/2 == 0)", async () => {
+      const deadline = (await time.latest()) + 3600;
+      await usdc.connect(client).approve(jobBoard.target, 1n);
+      await expect(
+        jobBoard.connect(client).postJob(workerId, validatorId, 0n, 0, 0, 1n, deadline, ethers.id("s"))
+      ).to.be.revertedWith("amount too small to collateralize");
+    });
+
+    it("tracks locked bond across two concurrent jobs (complete one, slash the other)", async () => {
+      const job1 = await postJob(workerId, usd(10));
+      const job2 = await postJob(workerId, usd(10));
+      expect(await bond.locked(worker.address)).to.equal(usd(10)); // 5 + 5 locked
+
+      await jobBoard.connect(worker).submit(job1, ANS);
+      await jobBoard.connect(validatorAcct).validate(job1, ANS); // pass → unlock 5
+      expect(await bond.locked(worker.address)).to.equal(usd(5));
+
+      const fb0 = await bond.bondOf(worker.address);
+      await jobBoard.connect(worker).submit(job2, WRONG);
+      await jobBoard.connect(validatorAcct).validate(job2, ANS); // fail → slash exactly job2's lock
+      expect(await bond.locked(worker.address)).to.equal(0n);
+      expect(fb0 - (await bond.bondOf(worker.address))).to.equal(usd(5));
+    });
+
+    it("a Submitted job cannot be expired — must be validated (closes the post-deadline slash-dodge)", async () => {
+      const job = await postJob(workerId, usd(8), 0n, 0, 0, 100);
+      await jobBoard.connect(worker).submit(job, WRONG);
+      await time.increase(200);
+      await expect(jobBoard.connect(worker).expire(job)).to.be.revertedWith("only open jobs are expirable");
+      await jobBoard.connect(validatorAcct).validate(job, ANS); // validate has no deadline → fail/slash still applies
+      expect((await jobBoard.getJob(job)).status).to.equal(4n); // Rejected
+    });
+  });
 });
