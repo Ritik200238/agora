@@ -91,8 +91,14 @@ export async function postJob(w: Wallet, p: PostJobParams): Promise<bigint> {
 
 export const submitJob = (w: Wallet, jobId: bigint, deliverable: `0x${string}`) =>
   send(w, dep().jobBoard, ABIS.JobBoard, "submit", [jobId, deliverable]);
-export const validateJob = (w: Wallet, jobId: bigint, passed: boolean) =>
-  send(w, dep().jobBoard, ABIS.JobBoard, "validate", [jobId, passed]);
+/** Validator submits its INDEPENDENTLY re-executed answer hash; the contract derives pass/fail. */
+export const validateJob = (w: Wallet, jobId: bigint, answerHash: `0x${string}`) =>
+  send(w, dep().jobBoard, ABIS.JobBoard, "validate", [jobId, answerHash]);
+
+export const availableBond = (addr: `0x${string}`) =>
+  read(dep().bond, ABIS.ReputationBond, "available", [addr]) as Promise<bigint>;
+export const lockedBond = (addr: `0x${string}`) =>
+  read(dep().bond, ABIS.ReputationBond, "locked", [addr]) as Promise<bigint>;
 export const expireJob = (w: Wallet, jobId: bigint) =>
   send(w, dep().jobBoard, ABIS.JobBoard, "expire", [jobId]);
 
