@@ -20,7 +20,8 @@ export interface Settlement {
 export class ChainSettlement implements Settlement {
   readonly name = "chain-erc20";
   async pay(payer: Wallet, to: `0x${string}`, amount: bigint, _memo: string) {
-    if (amount <= 0n) return { ref: "noop" };
+    // Refuse non-positive payments rather than returning a synthetic "ok" (which would mask upstream bugs).
+    if (amount <= 0n) throw new Error(`ChainSettlement: refusing non-positive payment (${amount})`);
     const receipt = await usdcTransfer(payer, dep().usdc, to, amount);
     return { ref: receipt.transactionHash };
   }

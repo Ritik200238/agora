@@ -24,28 +24,47 @@ export interface X402Terms {
   payTo: `0x${string}`;
   token: `0x${string}`;
   chainId: number;
+  serviceId: string;
+  challengeBlock: string; // payment must be mined AFTER this block
 }
 export interface X402Response {
   status: number;
   body: any;
 }
 
-/** A producer's x402-paywalled service (transport-agnostic core). */
+let SERVICE_SEQ = 0;
+
+/** A producer's x402-paywalled service (transport-agnostic core).
+ *  The payment is bound to a per-request CHALLENGE (a block height issued on the 402) so an unrelated or
+ *  pre-existing transfer to the producer cannot satisfy the paywall, and consumed payments are tracked
+ *  per-service to block replay. (On Arc, Circle's facilitator binds payments via signed EIP-712 auth.) */
 export function x402Service(opts: { payTo: `0x${string}`; price: bigint; produce: () => any }) {
+  const serviceId = `svc-${++SERVICE_SEQ}-${opts.payTo.slice(2, 10)}`;
   const consumed = new Set<string>();
+  let challengeBlock = 0n;
+
   return async function handle(paymentRef?: string): Promise<X402Response> {
     if (!paymentRef) {
+      challengeBlock = await publicClient.getBlockNumber();
       const terms: X402Terms = {
         price: opts.price.toString(),
         payTo: opts.payTo,
         token: dep().usdc,
         chainId: activeChain.id,
+        serviceId,
+        challengeBlock: challengeBlock.toString(),
       };
       return { status: 402, body: { error: "payment required", terms } };
     }
-    if (consumed.has(paymentRef)) return { status: 409, body: { error: "payment already used" } };
+
+    const key = `${serviceId}:${paymentRef.toLowerCase()}`;
+    if (consumed.has(key)) return { status: 409, body: { error: "payment already used" } };
 
     const receipt = await publicClient.getTransactionReceipt({ hash: paymentRef as `0x${string}` });
+    if (challengeBlock > 0n && receipt.blockNumber <= challengeBlock) {
+      return { status: 402, body: { error: "payment predates challenge (unrelated/replayed transfer rejected)" } };
+    }
+
     let paid = 0n;
     for (const log of receipt.logs) {
       if (log.address.toLowerCase() !== dep().usdc.toLowerCase()) continue;
@@ -60,7 +79,7 @@ export function x402Service(opts: { payTo: `0x${string}`; price: bigint; produce
     if (paid < opts.price) {
       return { status: 402, body: { error: "insufficient payment", paid: paid.toString(), required: opts.price.toString() } };
     }
-    consumed.add(paymentRef);
+    consumed.add(key);
     return { status: 200, body: opts.produce() };
   };
 }
@@ -77,6 +96,27 @@ export async function x402Pay(consumer: Wallet, service: (ref?: string) => Promi
   const res = await service(ref);
   if (res.status !== 200) throw new Error(`x402 failed: ${JSON.stringify(res.body)}`);
   return res.body;
+}
+
+/**
+ * Mode-aware purchase across the x402 boundary — the single call the economy uses, so the Circle path is
+ * a LIVE, selected branch (not dead code):
+ *   - LOCAL: an in-process x402 paywall settled by a real, challenge-bound on-chain USDC transfer.
+ *   - ARC:   Circle Gateway / Nanopayments via arcGatewayPay() against the producer's facilitator endpoint.
+ */
+export async function x402Buy(
+  consumer: Wallet,
+  producer: `0x${string}`,
+  price: bigint,
+  produce: () => any,
+  arcEndpoint?: string
+): Promise<any> {
+  if (SETTLEMENT_MODE === "arc") {
+    if (!arcEndpoint) throw new Error("x402Buy(arc) requires the producer's Circle-Gateway endpoint URL");
+    return arcGatewayPay(arcEndpoint); // genuine Circle Gateway settlement on Arc
+  }
+  const service = x402Service({ payTo: producer, price, produce });
+  return x402Pay(consumer, service);
 }
 
 /** Mount x402 services on an Express app at the given paths (HTTP transport for the local path). */

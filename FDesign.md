@@ -163,6 +163,11 @@ Three kinds of SSE messages arrive on this one stream:
     "slashed": "0.5",               // total USDC slashed from fraudsters (string)
     "slashEvents": 1,
     "firewallBlocks": 1,
+    "internalVolume": "34.96",      // self-generated volume (agents trading each other) — equals gdp
+    "externalVolume": "0.00",       // volume from non-agent wallets paying in via x402 (0 in the demo)
+    "settlementMode": "local",      // "local" (ERC-20) or "arc" (Circle Gateway)
+    "x402Sales": 6,                 // count of per-call x402 purchases settled
+    "x402Volume": "0.06",           // USDC moved over the x402 boundary (string)
     "pending": 2,                   // jobs currently in flight
     "agents": 11,
     "leaderboard": [                // sorted by score desc
@@ -201,6 +206,7 @@ Every live event has a `kind`. You decide how each reads, but here's their meani
 | `job_completed` | Work validated & paid | positive | `{ worker, kind }` |
 | `job_rejected` | **Fraud caught** — tampered work rejected, bond slashed | alert / negative | `{ worker, kind, slashed }` |
 | `stream_settled` | A producer's metered feed batch settled | positive (subtle) | `{ amount }` |
+| `x402_sale` | A consumer bought a one-off data point over the x402 boundary | positive (subtle) | `{ amount }` |
 | `firewall_block` | A spend was blocked (incl. **hijack** attempts) | alert / protective | `{ agent, reason }` |
 | `tick` | Internal heartbeat (you can ignore these) | — | snapshot-ish |
 

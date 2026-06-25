@@ -5,6 +5,8 @@ import { usd, fmtUsd, usdcApprove } from "../shared/usdc";
 import * as A from "../shared/contracts";
 import { ChainSettlement } from "../rail/settlement";
 import { FlowMeter, MeteredStream } from "../rail/flowmeter";
+import { x402Buy } from "../rail/x402";
+import { SETTLEMENT_MODE } from "../shared/config";
 import { makeTask, deliver, verify, solve, deliverableHash, TASK_KINDS, type Task, type TaskKind } from "../agents/tasks";
 import { type Society } from "../agents/society";
 import { Agent } from "../agents/agent";
@@ -28,6 +30,7 @@ export interface AgoraEvent {
     | "job_completed"
     | "job_rejected"
     | "stream_settled"
+    | "x402_sale"
     | "firewall_block"
     | "tick";
   msg: string;
@@ -59,6 +62,11 @@ export class Economy {
   totalSlashed = 0n;
   slashEvents = 0;
   firewallBlocks = 0;
+  // Volume bookkeeping (honest split): internalVolume is self-generated (agents trading each other);
+  // externalVolume is from non-agent wallets paying in over the x402 boundary (0 in the closed demo).
+  x402Sales = 0;
+  x402Volume = 0n;
+  externalVolume = 0n;
 
   constructor(public readonly society: Society) {
     this.flow = new FlowMeter(new ChainSettlement());
@@ -76,10 +84,11 @@ export class Economy {
     const workers = this.society.byRole("worker").filter((w) => w.skill === skill);
     if (workers.length === 0) return undefined;
     const scored = await Promise.all(workers.map(async (w) => ({ w, score: await A.scoreOf(w.agentId) })));
+    // Reputation gate: NEVER route to a known-bad (negative-rep) worker — no fallback to the bad pool.
     const eligible = scored.filter((s) => s.score >= 0n);
-    const pool = eligible.length ? eligible : scored;
-    pool.sort((a, b) => a.w.jobsDone - b.w.jobsDone || Number(a.w.agentId - b.w.agentId));
-    return pool[0].w;
+    if (eligible.length === 0) return undefined;
+    eligible.sort((a, b) => a.w.jobsDone - b.w.jobsDone || Number(a.w.agentId - b.w.agentId));
+    return eligible[0].w;
   }
 
   /** A consumer posts a job (escrow). `force` pins the worker (used to inject a fraud job). */
@@ -182,9 +191,23 @@ export class Economy {
     }
     if (this.tickN % 5 === 0) {
       for (const s of this.streams) {
+        const owed = s.stream.owed();
+        if (owed <= 0n) continue;
+        // stream spend goes through the consumer's treasury firewall too (single chokepoint)
+        const auth = s.consumer.firewall.authorize(owed);
+        if (!auth.ok) {
+          this.firewallBlocks++;
+          this.log("firewall_block", `🛡️ ${s.consumer.name} blocked a $${fmtUsd(owed)} stream settle — ${auth.reason}`, {
+            agent: s.consumer.name,
+            reason: auth.reason,
+          });
+          continue;
+        }
         try {
           const r = await s.stream.settle();
           if (r) {
+            s.consumer.firewall.record(r.amount);
+            s.consumer.spent += r.amount;
             s.producer.earned += r.amount;
             s.producer.streamsRun++;
             this.log("stream_settled", `📡 ${s.producer.name} → ${s.consumer.name} feed settled $${fmtUsd(r.amount)}`, {
@@ -198,6 +221,36 @@ export class Economy {
     }
   }
 
+  /** A consumer buys a one-off data point from the producer over the x402 boundary (mode-aware: local
+   *  in-process x402 over real on-chain USDC; Circle Gateway on Arc). Makes the x402/Circle path LIVE. */
+  async runX402Sales(): Promise<void> {
+    if (this.tickN % 3 !== 0) return;
+    const producer = this.society.byRole("producer")[0];
+    const consumers = this.society.byRole("consumer");
+    if (!producer || consumers.length === 0) return;
+    const consumer = consumers[this.tickN % consumers.length];
+    const price = usd(0.01);
+    const auth = consumer.firewall.authorize(price);
+    if (!auth.ok) {
+      this.firewallBlocks++;
+      this.log("firewall_block", `🛡️ ${consumer.name} blocked an x402 buy — ${auth.reason}`, { agent: consumer.name });
+      return;
+    }
+    try {
+      await x402Buy(consumer.wallet, producer.address, price, () => ({ feed: producer.name, point: this.tickN }));
+      consumer.firewall.record(price);
+      consumer.spent += price;
+      producer.earned += price;
+      this.x402Sales += 1;
+      this.x402Volume += price;
+      this.log("x402_sale", `🛰️ ${consumer.name} bought a data point from ${producer.name} over x402 — $${fmtUsd(price)} [${SETTLEMENT_MODE}]`, {
+        amount: price.toString(),
+      });
+    } catch {
+      /* x402 purchase failed (e.g. arc endpoint not configured) */
+    }
+  }
+
   /** One economic tick. */
   async tick(): Promise<void> {
     this.tickN++;
@@ -206,6 +259,7 @@ export class Economy {
     }
     await this.advanceJobs();
     await this.runStreams();
+    await this.runX402Sales();
   }
 
   // ---- demo hooks ----
@@ -253,6 +307,11 @@ export class Economy {
     return {
       tick: this.tickN,
       gdp: fmtUsd(econ.totalSettled),
+      // Honest volume split: GDP/internal is self-generated (agents are both sides); external is from
+      // non-agent wallets paying in over x402 (0 in the closed demo, but the path + field are real).
+      internalVolume: fmtUsd(econ.totalSettled),
+      externalVolume: fmtUsd(this.externalVolume),
+      settlementMode: SETTLEMENT_MODE,
       jobsCompleted: Number(econ.jobsCompleted),
       jobsRejected: Number(econ.jobsRejected),
       jobsExpired: Number(econ.jobsExpired),
@@ -260,6 +319,8 @@ export class Economy {
       slashed: fmtUsd(this.totalSlashed),
       slashEvents: this.slashEvents,
       firewallBlocks: this.firewallBlocks,
+      x402Sales: this.x402Sales,
+      x402Volume: fmtUsd(this.x402Volume),
       pending: this.pending.length,
       agents: this.society.agents.length,
       leaderboard,

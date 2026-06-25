@@ -13,22 +13,24 @@ export class SpendFirewall {
 
   constructor(
     public readonly budget: bigint,
-    public readonly rateCap: bigint
+    public readonly rateCap: bigint,
+    /** Anomaly cutoff: after this many denied spends, the agent is hard-halted (dead-man behaviour). */
+    public readonly anomalyThreshold: number = 3
   ) {}
 
+  private deny(reason: string): { ok: false; reason: string } {
+    this.blocks++;
+    // Anomaly cutoff: an agent that keeps trying to overspend (buggy or hijacked) is cut off entirely.
+    if (!this.halted && this.blocks >= this.anomalyThreshold) {
+      this.halt(`anomaly cutoff: ${this.blocks} blocked spends`);
+    }
+    return { ok: false, reason };
+  }
+
   authorize(amount: bigint): { ok: boolean; reason?: string } {
-    if (this.halted) {
-      this.blocks++;
-      return { ok: false, reason: `halted: ${this.haltReason}` };
-    }
-    if (amount > this.rateCap) {
-      this.blocks++;
-      return { ok: false, reason: `exceeds rate cap (${amount} > ${this.rateCap})` };
-    }
-    if (this.spent + amount > this.budget) {
-      this.blocks++;
-      return { ok: false, reason: "exceeds remaining budget" };
-    }
+    if (this.halted) return this.deny(`halted: ${this.haltReason}`);
+    if (amount > this.rateCap) return this.deny(`exceeds rate cap (${amount} > ${this.rateCap})`);
+    if (this.spent + amount > this.budget) return this.deny("exceeds remaining budget");
     return { ok: true };
   }
 
