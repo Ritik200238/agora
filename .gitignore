@@ -1,0 +1,15 @@
+node_modules/
+artifacts/
+cache/
+typechain-types/
+deployments/
+.env
+.env.local
+*.log
+npm-debug.log*
+dashboard/public/data/
+coverage/
+.DS_Store
+
+# Cloned reference repo (its own git history), kept on disk as a reference only
+circle-agent/
