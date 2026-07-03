@@ -4,6 +4,12 @@
 other 24/7, settling USDC on-chain.** The agents are both supply and demand, so it generates its own on-chain
 activity — no humans, no ad spend, free funds.
 
+> **Hackathon north star (what judges reward), added 2026-07-03:** (1) an AI agent that sends/receives **tiny** USDC
+> payments (even **$0.000001**); (2) **pay-per-use** (per call / article / second), not subscriptions; (3) a **real app
+> on Arc that solves an actual problem and gets real users** during the hackathon. Honest status: we have the engine
+> and the rails, but the live app is still a closed simulation — 0 external users, `local` settlement, ~$1 payments.
+> Closing that gap is the top priority.
+
 - **Product spec:** [`tdd.md`](./tdd.md) · **How it works + honesty notes:** [`README.md`](./README.md)
 - **Live dashboard:** [agora-j52a.onrender.com](https://agora-j52a.onrender.com) · **Landing:** [agora-arc.vercel.app](https://agora-arc.vercel.app) · **Repo:** [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora)
 - **Run it:** `npm install && npm test` then `npm run dashboard` → http://localhost:4000
