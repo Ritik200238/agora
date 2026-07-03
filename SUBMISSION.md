@@ -32,7 +32,10 @@ activity — no humans, no ad spend, free funds.
 - **Runs + tested locally / in CI:** the entire economy on a local EVM — real contracts, escrow, slashing,
   price discovery, credit market, FlowMeter, x402 (real on-chain USDC transfers).
 - **Wired, SDK-correct, unexecuted here:** Circle **Gateway/Nanopayments** on **Arc Testnet** (needs a
-  faucet-funded key) + a verified Arc deployment. Same code, different network.
+  faucet-funded key) + a full multi-agent Arc deployment. Same code, different network.
+- **Arc connectivity verified:** the runtime talks to **real Arc Testnet** over the Canteen-hosted RPC —
+  `eth_chainId` returns **5042002** and it reads live blocks. Deploying the contracts + settling via Gateway
+  on Arc still needs a faucet-funded key (the one honest blocker).
 
 ## Submission checklist
 
@@ -45,6 +48,41 @@ activity — no humans, no ad spend, free funds.
 - [ ] **Sub-3-minute demo video** — record the dashboard (GDP ticking → leaderboard → one job trace →
       inject fraud/slash → simulate hijack/firewall → cumulative volume). Link: `________`
 - [ ] Submit via the official form
+
+## Submission form — copy-paste answers
+
+**Project name:** Agora — the self-running agent economy on Arc
+
+**One-liner:** A self-running economy of autonomous AI agents that hire, pay, rate, compete, and lend to each
+other 24/7 — settling USDC on Arc.
+
+**What it does:** Agora boots a society of 12 autonomous agents that are *both supply and demand*. Every tick:
+consumers post USDC-funded jobs (gated by a treasury spend-firewall); a broker collects competitive quotes and
+routes each job to the best value (price × on-chain reputation), so prices are *discovered*, not fixed; workers
+deliver re-executable results; a disinterested validator independently re-executes and the ERC-8183 escrow
+*derives the verdict on-chain*. Pass → it pays the worker, broker & validator and raises reputation. Fail → it
+refunds the client and *slashes the worker's locked USDC bond*. A lender runs a reputation-backed credit market
+(proven workers borrow working capital, repay with interest); a producer sells a metered data feed over a
+proof-of-flow rail. Emergent result: real price discovery, on-chain reputation, a fraudster that gets *frozen
+out*, and a hijacked agent that the firewall blocks — with no human in the loop.
+
+**How it uses Circle / Arc:** USDC for every payment (native gas on Arc; 6-dp ERC-20 for transfers) · ERC-8004
+identity/reputation/validation (the trust layer) · ERC-8183 job escrow · reputation-as-collateral USDC bonds
+(locked + slashable) · a FlowMeter proof-of-flow streaming rail · an x402 pay-to-use boundary whose Arc branch
+settles via Circle Gateway/Nanopayments. Targets Arc Testnet (chain 5042002); RPC connectivity verified live
+against the Canteen-hosted Arc endpoint.
+
+**Traction (honest):** A 24/7 economy generating continuous real on-chain USDC transactions with zero humans
+and zero ad spend — live at agora-j52a.onrender.com. We report volume honestly: it is self-generated
+`internalVolume` (agents are both sides of every trade); `externalVolume` (non-agent wallets paying in over the
+open x402 boundary) is tracked separately and is currently 0. We make no external-user-traction claim.
+
+**Tech stack:** Solidity 0.8.28 (OpenZeppelin v5, Cancun EVM) · Hardhat · viem · TypeScript · Express + SSE ·
+Docker. Agents are rule-based (zero API keys, zero cost) so the economy is deterministic and fully testable —
+22 contract tests + 17 end-to-end assertions + 14 runtime checks, all green in CI.
+
+**Links:** Live dashboard https://agora-j52a.onrender.com · Landing https://agora-arc.vercel.app ·
+GitHub https://github.com/Ritik200238/agora · Demo video _[add after recording]_
 
 ## Demo script (≈3 min)
 
