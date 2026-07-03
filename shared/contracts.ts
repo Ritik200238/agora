@@ -117,6 +117,34 @@ export async function getJob(jobId: bigint) {
   };
 }
 
+// ---------- LendingPool (reputation-backed credit market) ----------
+export const lenderDeposit = (w: Wallet, amount: bigint) =>
+  send(w, dep().lendingPool, ABIS.LendingPool, "deposit", [amount]);
+export const lenderWithdraw = (w: Wallet, amount: bigint) =>
+  send(w, dep().lendingPool, ABIS.LendingPool, "withdraw", [amount]);
+export const borrow = (w: Wallet, principal: bigint) =>
+  send(w, dep().lendingPool, ABIS.LendingPool, "borrow", [principal]);
+export const repay = (w: Wallet, amount: bigint) =>
+  send(w, dep().lendingPool, ABIS.LendingPool, "repay", [amount]);
+export const recoverLoan = (w: Wallet, borrower: `0x${string}`) =>
+  send(w, dep().lendingPool, ABIS.LendingPool, "recover", [borrower]);
+export const creditLimit = (agentId: bigint) =>
+  read(dep().lendingPool, ABIS.LendingPool, "creditLimit", [agentId]) as Promise<bigint>;
+export const debtOf = (addr: `0x${string}`) =>
+  read(dep().lendingPool, ABIS.LendingPool, "debt", [addr]) as Promise<bigint>;
+
+export async function creditMarket() {
+  const p = dep().lendingPool;
+  const [totalDeposits, totalBorrowed, interestEarned, defaults, liquidity] = await Promise.all([
+    read(p, ABIS.LendingPool, "totalDeposits") as Promise<bigint>,
+    read(p, ABIS.LendingPool, "totalBorrowed") as Promise<bigint>,
+    read(p, ABIS.LendingPool, "interestEarned") as Promise<bigint>,
+    read(p, ABIS.LendingPool, "defaults") as Promise<bigint>,
+    read(p, ABIS.LendingPool, "liquidity") as Promise<bigint>,
+  ]);
+  return { totalDeposits, totalBorrowed, interestEarned, defaults, liquidity };
+}
+
 /** On-chain economy counters used by the dashboard for "GDP". */
 export async function economy() {
   const jb = dep().jobBoard;

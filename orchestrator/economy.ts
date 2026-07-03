@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { publicClient } from "../shared/chain";
 import { dep } from "../shared/config";
-import { usd, fmtUsd, usdcApprove } from "../shared/usdc";
+import { usd, fmtUsd, usdcApprove, usdcBalance } from "../shared/usdc";
 import * as A from "../shared/contracts";
 import { ChainSettlement } from "../rail/settlement";
 import { FlowMeter, MeteredStream } from "../rail/flowmeter";
@@ -32,6 +32,7 @@ export interface AgoraEvent {
     | "stream_settled"
     | "x402_sale"
     | "priced_out"
+    | "credit"
     | "firewall_block"
     | "tick";
   msg: string;
@@ -49,6 +50,10 @@ const LOAD_BPS = 1500n; // +15% to a worker's quote per in-flight job (busy work
 const REP_MAX_BPS = 5000n; // up to +50% quote premium for a top-reputation worker
 const VALUE_REP_BPS = 6000n; // broker discounts a high-rep worker's quote when comparing bids on value
 const clampRep = (score: bigint) => BigInt(Math.max(0, Math.min(Number(score), 200))) * 50n; // 0..10000
+
+// --- credit market ---
+const CREDIT_MIN_REP = 30n; // minimum reputation to access working-capital credit
+const BORROW_PRINCIPAL = () => usd(4); // a reputable worker borrows this to expand its bond/capacity
 
 /**
  * Economy — the self-running world loop.
@@ -78,6 +83,9 @@ export class Economy {
   marketRates = new Map<string, bigint>(); // EMA of winning price per skill
   priceHistory: { t: number; skill: string; price: string; cleared: boolean }[] = [];
   pricedOut = 0;
+  // credit market
+  creditLoans = 0;
+  creditRepaid = 0;
 
   constructor(public readonly society: Society) {
     this.flow = new FlowMeter(new ChainSettlement());
@@ -333,6 +341,61 @@ export class Economy {
     await this.advanceJobs();
     await this.runStreams();
     await this.runX402Sales();
+    await this.runCredit();
+  }
+
+  /** Reputation-backed credit cycle: a top-reputation worker borrows working capital to expand its bond
+   *  (capacity), and borrowers repay from earnings — the lender profits on the interest. */
+  async runCredit(): Promise<void> {
+    // BORROW: every 6 ticks, the highest-reputation debt-free worker takes a working-capital loan.
+    if (this.tickN % 6 === 0) {
+      const cands: { w: Agent; score: bigint }[] = [];
+      for (const w of this.society.byRole("worker")) {
+        const [score, debt] = await Promise.all([A.scoreOf(w.agentId), A.debtOf(w.address)]);
+        if (score >= CREDIT_MIN_REP && debt === 0n) cands.push({ w, score });
+      }
+      if (cands.length) {
+        cands.sort((a, b) => Number(b.score - a.score));
+        const { w, score } = cands[0];
+        const principal = BORROW_PRINCIPAL();
+        const owed = (principal * 10500n) / 10000n; // + 5% fee
+        const [limit, avail] = await Promise.all([A.creditLimit(w.agentId), A.availableBond(w.address)]);
+        if (limit >= owed && avail >= (principal * 2000n) / 10000n) {
+          try {
+            await A.borrow(w.wallet, principal);
+            await usdcApprove(w.wallet, dep().usdc, dep().bond, principal);
+            await A.postBond(w.wallet, principal); // invest the credit into more collateral/capacity
+            w.borrowed = await A.debtOf(w.address);
+            this.creditLoans += 1;
+            this.log("credit", `🏦 ${w.name} borrowed $${fmtUsd(principal)} against reputation (${score}) to expand capacity`, {
+              agent: w.name,
+            });
+          } catch {
+            /* limit/liquidity race */
+          }
+        }
+      }
+    }
+    // REPAY: offset by 3 ticks, a borrower with enough earnings repays in full (+interest → lender yield).
+    if (this.tickN % 6 === 3) {
+      for (const w of this.society.byRole("worker")) {
+        const debt = await A.debtOf(w.address);
+        if (debt === 0n) continue;
+        const bal = await usdcBalance(dep().usdc, w.address);
+        if (bal >= debt) {
+          try {
+            await usdcApprove(w.wallet, dep().usdc, dep().lendingPool, debt);
+            await A.repay(w.wallet, debt);
+            w.borrowed = 0n;
+            this.creditRepaid += 1;
+            this.log("credit", `🏦 ${w.name} repaid its loan (+interest) — lender profits`, { agent: w.name });
+          } catch {
+            /* nothing */
+          }
+        }
+        break; // at most one repay per tick
+      }
+    }
   }
 
   // ---- demo hooks ----
@@ -363,6 +426,7 @@ export class Economy {
 
   async snapshot() {
     const econ = await A.economy();
+    const credit = await A.creditMarket();
     const leaderboard = await Promise.all(
       this.society.agents.map(async (a) => ({
         name: a.name,
@@ -397,6 +461,15 @@ export class Economy {
       marketRates: Object.fromEntries([...this.marketRates].map(([k, v]) => [k, fmtUsd(v)])),
       priceHistory: this.priceHistory.slice(-40),
       pricedOut: this.pricedOut,
+      credit: {
+        deposits: fmtUsd(credit.totalDeposits),
+        borrowed: fmtUsd(credit.totalBorrowed),
+        interestEarned: fmtUsd(credit.interestEarned),
+        defaults: Number(credit.defaults),
+        liquidity: fmtUsd(credit.liquidity),
+        loans: this.creditLoans,
+        repaid: this.creditRepaid,
+      },
       pending: this.pending.length,
       agents: this.society.agents.length,
       leaderboard,

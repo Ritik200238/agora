@@ -26,6 +26,7 @@ export const DEFAULT_CAST: AgentConfig[] = [
   { name: "Sorter-2", role: "worker", keyIndex: 9, honest: true, skill: "sort" },
   { name: "Summer-2", role: "worker", keyIndex: 10, honest: true, skill: "sum" },
   { name: "Grift", role: "worker", keyIndex: 11, honest: false, skill: "sum" }, // the fraudster
+  { name: "Banca", role: "lender", keyIndex: 12, honest: true, skill: "" }, // market-maker / lender
 ];
 
 const AGENT_BUDGET = () => usd(500);
@@ -57,6 +58,13 @@ export async function buildSociety(cast: AgentConfig[] = DEFAULT_CAST): Promise<
       await usdcApprove(a.wallet, D.usdc, D.bond, BOND_AMOUNT());
       await A.postBond(a.wallet, BOND_AMOUNT());
     }
+  }
+
+  // the lender seeds the credit market
+  const lender = agents.find((a) => a.role === "lender");
+  if (lender) {
+    await usdcApprove(lender.wallet, D.usdc, D.lendingPool, usd(200));
+    await A.lenderDeposit(lender.wallet, usd(200));
   }
 
   return {
