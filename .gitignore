@@ -13,3 +13,6 @@ coverage/
 
 # Cloned reference repo (its own git history), kept on disk as a reference only
 circle-agent/
+
+# harness/session artifacts
+.claude/
