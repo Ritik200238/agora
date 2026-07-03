@@ -16,3 +16,7 @@ circle-agent/
 
 # harness/session artifacts
 .claude/
+
+# local UI-verification artifacts (browser screenshots)
+.playwright-mcp/
+/*.png

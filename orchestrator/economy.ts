@@ -71,6 +71,7 @@ export class Economy {
   readonly emitter = new EventEmitter();
   readonly events: AgoraEvent[] = [];
   pending: JobCtx[] = [];
+  jobKinds = new Map<string, string>(); // jobId → task kind (durable; the event buffer prunes over time)
   streams: { stream: MeteredStream; consumer: Agent; producer: Agent }[] = [];
   tickN = 0;
   salt = 1;
@@ -89,6 +90,16 @@ export class Economy {
   // credit market
   creditLoans = 0;
   creditRepaid = 0;
+  // the job featured in the "one job end-to-end" panel (newest in-flight, else the last settled one)
+  lastSpotlight: {
+    jobId: string;
+    client: string;
+    worker: string;
+    kind: string;
+    amount: string;
+    statusCode: number;
+    passed: boolean | null;
+  } | null = null;
   // transaction-rate tracking (wall-clock timestamps of value-moving events)
   txTimestamps: number[] = [];
 
@@ -202,7 +213,8 @@ export class Economy {
     consumer.jobsPosted++;
     this.recordPrice(task.kind, amount, true);
     this.pending.push({ jobId, task, consumer, worker, validator, broker, amount, state: "Open" });
-    this.log("job_posted", `${consumer.name} → ${worker.name} · ${task.kind} · $${fmtUsd(amount)} (via ${broker.name})`, {
+    this.jobKinds.set(jobId.toString(), task.kind);
+    this.log("job_posted", `${consumer.name} hired ${worker.name} for a ${task.kind} job · escrow funded (via ${broker.name})`, {
       jobId: jobId.toString(),
       worker: worker.name,
       consumer: consumer.name,
@@ -225,22 +237,35 @@ export class Economy {
         await A.validateJob(ctx.validator.wallet, ctx.jobId, validatorAnswerHash);
         const passed = verify(ctx.task, ctx.answer!); // same verdict the chain just derived
         if (passed) {
+          // mirror the on-chain fee split (JobBoard.validate): broker gets brokerFeeBps, validator
+          // gets validatorFeeBps, the worker receives the remainder — every party's earnings are REAL.
+          const brokerFee = (ctx.amount * BigInt(BROKER_FEE_BPS)) / 10000n;
+          const validatorFee = (ctx.amount * BigInt(VALIDATOR_FEE_BPS)) / 10000n;
+          const workerPay = ctx.amount - brokerFee - validatorFee;
           ctx.worker.jobsDone++;
-          ctx.worker.earned += ctx.amount;
-          this.log("job_completed", `✓ ${ctx.worker.name} delivered ${ctx.task.kind} — validated & paid $${fmtUsd(ctx.amount)}`, {
+          ctx.worker.earned += workerPay;
+          ctx.broker.jobsDone++;
+          ctx.broker.earned += brokerFee;
+          ctx.validator.jobsDone++;
+          ctx.validator.earned += validatorFee;
+          this.lastSpotlight = { jobId: ctx.jobId.toString(), client: ctx.consumer.name, worker: ctx.worker.name, kind: ctx.task.kind, amount: fmtUsd(ctx.amount), statusCode: 3, passed: true };
+          this.log("job_completed", `${ctx.worker.name} settled ${ctx.task.kind} job · $${fmtUsd(workerPay)} released from escrow`, {
             jobId: ctx.jobId.toString(),
             worker: ctx.worker.name,
             kind: ctx.task.kind,
           });
         } else {
+          const slashed = ctx.amount / 2n;
           ctx.worker.jobsFailed++;
-          this.totalSlashed += ctx.amount / 2n;
+          ctx.validator.jobsDone++; // the validator correctly caught the fraud — a successful validation
+          this.totalSlashed += slashed;
           this.slashEvents++;
-          this.log("job_rejected", `⚠️ ${ctx.worker.name} delivered TAMPERED ${ctx.task.kind} — REJECTED · client refunded · bond SLASHED`, {
+          this.lastSpotlight = { jobId: ctx.jobId.toString(), client: ctx.consumer.name, worker: ctx.worker.name, kind: ctx.task.kind, amount: fmtUsd(ctx.amount), statusCode: 4, passed: false };
+          this.log("job_rejected", `${ctx.worker.name} delivered TAMPERED ${ctx.task.kind} — rejected by ${ctx.validator.name} · bond slashed $${fmtUsd(slashed)}`, {
             jobId: ctx.jobId.toString(),
             worker: ctx.worker.name,
             kind: ctx.task.kind,
-            slashed: fmtUsd(ctx.amount / 2n),
+            slashed: fmtUsd(slashed),
           });
         }
         this.pending = this.pending.filter((p) => p !== ctx);
@@ -287,7 +312,7 @@ export class Economy {
             s.consumer.spent += r.amount;
             s.producer.earned += r.amount;
             s.producer.streamsRun++;
-            this.log("stream_settled", `📡 ${s.producer.name} → ${s.consumer.name} feed settled $${fmtUsd(r.amount)}`, {
+            this.log("stream_settled", `${s.producer.name} metered feed batch settled · $${fmtUsd(r.amount)}`, {
               amount: r.amount.toString(),
             });
           }
@@ -451,6 +476,21 @@ export class Economy {
       }))
     );
     leaderboard.sort((a, b) => b.score - a.score);
+
+    // the "one job end-to-end" spotlight: the newest in-flight job if any, else the last settled one
+    const top = this.pending[this.pending.length - 1];
+    const spotlight = top
+      ? {
+          jobId: top.jobId.toString(),
+          client: top.consumer.name,
+          worker: top.worker.name,
+          kind: top.task.kind,
+          amount: fmtUsd(top.amount),
+          statusCode: top.state === "Open" ? 1 : 2,
+          passed: null as boolean | null,
+        }
+      : this.lastSpotlight;
+
     return {
       tick: this.tickN,
       txPerMin: this.txTimestamps.length, // value-moving on-chain transactions in the last 60s
@@ -483,7 +523,38 @@ export class Economy {
       },
       pending: this.pending.length,
       agents: this.society.agents.length,
+      spotlight,
       leaderboard,
+    };
+  }
+
+  /** Full on-chain profile of one agent (for the agent-detail view — a surface built in the same brand). */
+  async agentDetail(name: string) {
+    const a = this.society.byName(name);
+    if (!a) return null;
+    const collateralized = a.role === "worker" || a.role === "producer";
+    const [score, bondTotal, avail, locked, debt, limit] = await Promise.all([
+      A.scoreOf(a.agentId),
+      collateralized ? A.bondOf(a.address) : Promise.resolve(0n),
+      collateralized ? A.availableBond(a.address) : Promise.resolve(0n),
+      collateralized ? A.lockedBond(a.address) : Promise.resolve(0n),
+      A.debtOf(a.address),
+      a.role === "worker" ? A.creditLimit(a.agentId) : Promise.resolve(0n),
+    ]);
+    return {
+      name: a.name,
+      role: a.role,
+      skill: a.skill,
+      honest: a.honest,
+      agentId: a.agentId.toString(),
+      address: a.address,
+      score: Number(score),
+      earned: fmtUsd(a.earned),
+      jobsDone: a.jobsDone,
+      jobsFailed: a.jobsFailed,
+      bond: collateralized ? { total: fmtUsd(bondTotal), available: fmtUsd(avail), locked: fmtUsd(locked) } : null,
+      debt: fmtUsd(debt),
+      creditLimit: a.role === "worker" ? fmtUsd(limit) : null,
     };
   }
 
@@ -505,6 +576,7 @@ export class Economy {
       /* unknown job */
     }
     const timeline = this.events.filter((e) => e.data && String(e.data.jobId) === String(jobId));
-    return { jobId: jobId.toString(), onchain, timeline };
+    const kind = this.jobKinds.get(String(jobId)) ?? timeline.find((e) => e.data?.kind)?.data.kind ?? null;
+    return { jobId: jobId.toString(), kind, onchain, timeline };
   }
 }

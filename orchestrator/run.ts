@@ -29,7 +29,7 @@ async function main() {
     for (let i = 0; i < TICKS; i++) {
       await eco.tick();
       if (eco.tickN === 4) await eco.injectFraud(); // scripted fraud→slash beat
-      if (eco.tickN === 8) eco.hijackAttempt("Atlas"); // scripted hijack→firewall beat
+      if (eco.tickN === 8) eco.hijackAttempt("Nova-1"); // scripted hijack→firewall beat
       if (!finite) await sleep(DELAY);
       if (eco.tickN % 5 === 0) {
         const s = await eco.snapshot();
