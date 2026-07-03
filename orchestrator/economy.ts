@@ -55,6 +55,9 @@ const clampRep = (score: bigint) => BigInt(Math.max(0, Math.min(Number(score), 2
 const CREDIT_MIN_REP = 30n; // minimum reputation to access working-capital credit
 const BORROW_PRINCIPAL = () => usd(4); // a reputable worker borrows this to expand its bond/capacity
 
+// value-moving events counted toward transactions-per-minute
+const VALUE_KINDS = new Set(["job_posted", "job_completed", "job_rejected", "stream_settled", "x402_sale", "credit"]);
+
 /**
  * Economy — the self-running world loop.
  *
@@ -86,6 +89,8 @@ export class Economy {
   // credit market
   creditLoans = 0;
   creditRepaid = 0;
+  // transaction-rate tracking (wall-clock timestamps of value-moving events)
+  txTimestamps: number[] = [];
 
   constructor(public readonly society: Society) {
     this.flow = new FlowMeter(new ChainSettlement());
@@ -95,6 +100,7 @@ export class Economy {
     const e: AgoraEvent = { t: this.tickN, kind, msg, data };
     this.events.push(e);
     if (this.events.length > 800) this.events.shift();
+    if (VALUE_KINDS.has(kind)) this.txTimestamps.push(Date.now());
     this.emitter.emit("event", e);
   }
 
@@ -222,6 +228,7 @@ export class Economy {
           ctx.worker.jobsDone++;
           ctx.worker.earned += ctx.amount;
           this.log("job_completed", `✓ ${ctx.worker.name} delivered ${ctx.task.kind} — validated & paid $${fmtUsd(ctx.amount)}`, {
+            jobId: ctx.jobId.toString(),
             worker: ctx.worker.name,
             kind: ctx.task.kind,
           });
@@ -230,6 +237,7 @@ export class Economy {
           this.totalSlashed += ctx.amount / 2n;
           this.slashEvents++;
           this.log("job_rejected", `⚠️ ${ctx.worker.name} delivered TAMPERED ${ctx.task.kind} — REJECTED · client refunded · bond SLASHED`, {
+            jobId: ctx.jobId.toString(),
             worker: ctx.worker.name,
             kind: ctx.task.kind,
             slashed: fmtUsd(ctx.amount / 2n),
@@ -427,6 +435,8 @@ export class Economy {
   async snapshot() {
     const econ = await A.economy();
     const credit = await A.creditMarket();
+    const now = Date.now();
+    this.txTimestamps = this.txTimestamps.filter((t) => t > now - 60000);
     const leaderboard = await Promise.all(
       this.society.agents.map(async (a) => ({
         name: a.name,
@@ -443,6 +453,7 @@ export class Economy {
     leaderboard.sort((a, b) => b.score - a.score);
     return {
       tick: this.tickN,
+      txPerMin: this.txTimestamps.length, // value-moving on-chain transactions in the last 60s
       gdp: fmtUsd(econ.totalSettled),
       // Honest volume split: GDP/internal is self-generated (agents are both sides); external is from
       // non-agent wallets paying in over x402 (0 in the closed demo, but the path + field are real).
@@ -474,5 +485,26 @@ export class Economy {
       agents: this.society.agents.length,
       leaderboard,
     };
+  }
+
+  /** End-to-end trace of a single job (demo beat 3): on-chain final state + its event timeline. */
+  async jobTrace(jobId: bigint) {
+    const nameOf = (id: bigint) => this.society.agents.find((a) => a.agentId === id)?.name ?? `#${id}`;
+    let onchain: any = null;
+    try {
+      const j = await A.getJob(jobId);
+      onchain = {
+        status: j.status,
+        client: nameOf(j.clientId),
+        worker: nameOf(j.workerId),
+        validator: nameOf(j.validatorId),
+        broker: j.brokerId ? nameOf(j.brokerId) : null,
+        amount: fmtUsd(j.amount),
+      };
+    } catch {
+      /* unknown job */
+    }
+    const timeline = this.events.filter((e) => e.data && String(e.data.jobId) === String(jobId));
+    return { jobId: jobId.toString(), onchain, timeline };
   }
 }

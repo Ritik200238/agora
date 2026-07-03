@@ -147,6 +147,8 @@ The backend is a local HTTP server (default `http://localhost:4000`) that runs t
   ```
 - **`GET /api/snapshot`** → the full current state (same shape as the SSE `snapshot` event below). Use this to
   populate initial state on load.
+- **`GET /api/job/:id`** → end-to-end trace of one job (on-chain final state + its event timeline) — powers a
+  "one job, end-to-end" drill-down. Shape: `{ jobId, onchain: { status, client, worker, validator, broker, amount }, timeline: [event…] }`.
 - **`POST /api/inject-fraud`** → `{ "ok": true }` (triggers a fraud event).
 - **`POST /api/hijack`** → `{ "ok": false, "reason": "exceeds rate cap (...)" }` (triggers + reports a blocked hijack).
 
@@ -157,6 +159,7 @@ Three kinds of SSE messages arrive on this one stream:
   ```json
   {
     "tick": 20,
+    "txPerMin": 42,                 // value-moving on-chain transactions in the last 60 seconds
     "gdp": "34.96",                 // USDC settled, already formatted as dollars (string)
     "jobsCompleted": 38,
     "jobsRejected": 1,

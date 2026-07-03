@@ -43,6 +43,13 @@ async function main() {
     res.json({ network: process.env.AGORA_NETWORK || "localhost", agents: society.agents.length, tickMs: TICK_MS })
   );
   app.get("/api/snapshot", async (_req, res) => res.json(await eco.snapshot()));
+  app.get("/api/job/:id", async (req, res) => {
+    try {
+      res.json(await eco.jobTrace(BigInt(req.params.id)));
+    } catch {
+      res.status(400).json({ error: "bad job id" });
+    }
+  });
   app.post("/api/inject-fraud", async (_req, res) => {
     await eco.injectFraud();
     res.json({ ok: true });
@@ -71,12 +78,18 @@ async function main() {
     const r = await fetch(`http://localhost:${PORT}/api/snapshot`);
     const snap = await r.json();
     const html = await (await fetch(`http://localhost:${PORT}/`)).text();
+    const trace = await (await fetch(`http://localhost:${PORT}/api/job/1`)).json();
     const ok =
       typeof snap.gdp === "string" &&
+      typeof snap.txPerMin === "number" &&
+      !!snap.credit &&
+      !!snap.marketRates &&
       Array.isArray(snap.leaderboard) &&
       snap.leaderboard.length === society.agents.length &&
+      trace.jobId === "1" &&
+      !!trace.onchain &&
       html.includes("Agora");
-    console.log("SELFTEST snapshot:", { gdp: snap.gdp, completed: snap.jobsCompleted, rejected: snap.jobsRejected, slashed: snap.slashed });
+    console.log("SELFTEST snapshot:", { gdp: snap.gdp, txPerMin: snap.txPerMin, credit: snap.credit, trace: trace.onchain?.status });
     console.log(ok ? "✅ DASHBOARD SELFTEST PASSED" : "❌ DASHBOARD SELFTEST FAILED");
     chain.stop();
     process.exit(ok ? 0 : 1);
