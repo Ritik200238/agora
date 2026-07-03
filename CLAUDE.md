@@ -5,6 +5,21 @@ Build the product according to that TDD. These rules govern *how* the work is do
 
 ---
 
+## 🎯 Hackathon north star — what the judges actually reward (added 2026-07-03)
+
+The Lepton hackathon (Canteen × Circle × Arc), in three lines, wants:
+1. **🤖 An AI agent that automatically sends & receives TINY USDC payments** — even **$0.000001**.
+2. **💰 A product where people or AI pay only for what they use** (per article / API call / second / song) — **not** subscriptions.
+3. **🚀 A real app on Arc that solves an ACTUAL problem and gets REAL USERS during the hackathon.**
+
+> ELI5: instead of ₹500/month for Netflix, pay ₹1 for the one movie you watched — then replace humans with AI agents.
+
+**Alignment bar for every decision:** does it push toward *tiny* payments, *pay-per-use*, and *real users on real Arc*?
+The failure mode to avoid: a beautiful **closed simulation** with 0 real users, dollar-scale payments, on a local EVM.
+As of 2026-07-03 the live app is exactly that (externalVolume=$0, settlement=local, ~$1 jobs) — closing this gap is the priority.
+
+---
+
 ## NON-NEGOTIABLE RULES
 
 1. **Commit attribution is mandatory.** Every single commit must end with the trailer:
