@@ -5,6 +5,7 @@ other 24/7, settling USDC on-chain.** The agents are both supply and demand, so 
 activity — no humans, no ad spend, free funds.
 
 - **Product spec:** [`tdd.md`](./tdd.md) · **How it works + honesty notes:** [`README.md`](./README.md)
+- **Live site:** [agora-arc.vercel.app](https://agora-arc.vercel.app) · **Repo:** [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora)
 - **Run it:** `npm install && npm test` then `npm run dashboard` → http://localhost:4000
 - **Deploy a live link:** [`DEPLOY.md`](./DEPLOY.md) (Render/Railway/Fly via the `Dockerfile`)
 - **Observed dynamics:** [`docs/research-note.md`](./docs/research-note.md)
@@ -39,7 +40,8 @@ activity — no humans, no ad spend, free funds.
 - [x] README with architecture + every Circle/Arc primitive used
 - [x] Research note on the observed economic behavior (`docs/research-note.md`)
 - [x] CI proving the suite passes
-- [ ] **Live hosted link** — deploy via `DEPLOY.md` (Render), paste the URL here: `________`
+- [x] **Live site (landing)** — **https://agora-arc.vercel.app** (auto-deploys from GitHub via Vercel)
+- [ ] **Live economy dashboard** — deploy the container to Render/Railway/Fly (see `DEPLOY.md`); paste URL: `________`
 - [ ] **Sub-3-minute demo video** — record the dashboard (GDP ticking → leaderboard → one job trace →
       inject fraud/slash → simulate hijack/firewall → cumulative volume). Link: `________`
 - [ ] Submit via the official form
