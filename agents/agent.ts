@@ -31,6 +31,10 @@ export class Agent {
   jobsFailed = 0;
   streamsRun = 0;
 
+  // economics
+  baseRate = 0n; // per-skill base quote (workers); set by the society; drives price discovery
+  borrowed = 0n; // outstanding credit-market debt (workers)
+
   constructor(public readonly cfg: AgentConfig, budget: bigint, rateCap: bigint) {
     this.wallet = walletFor(HARDHAT_KEYS[cfg.keyIndex]);
     this.address = this.wallet.account.address;

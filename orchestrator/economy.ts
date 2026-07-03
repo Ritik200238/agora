@@ -31,17 +31,24 @@ export interface AgoraEvent {
     | "job_rejected"
     | "stream_settled"
     | "x402_sale"
+    | "priced_out"
     | "firewall_block"
     | "tick";
   msg: string;
   data?: any;
 }
 
-const JOB_AMOUNT = () => usd(1);
 const STREAM_RATE = () => usd(0.002);
 const STREAM_BUDGET = () => usd(5);
 const BROKER_FEE_BPS = 500; // 5%
 const VALIDATOR_FEE_BPS = 300; // 3%
+
+// --- price discovery ---
+const WTP = () => usd(1.6); // consumer willingness-to-pay ceiling → demand elasticity (some jobs priced out)
+const LOAD_BPS = 1500n; // +15% to a worker's quote per in-flight job (busy workers charge more)
+const REP_MAX_BPS = 5000n; // up to +50% quote premium for a top-reputation worker
+const VALUE_REP_BPS = 6000n; // broker discounts a high-rep worker's quote when comparing bids on value
+const clampRep = (score: bigint) => BigInt(Math.max(0, Math.min(Number(score), 200))) * 50n; // 0..10000
 
 /**
  * Economy — the self-running world loop.
@@ -67,6 +74,10 @@ export class Economy {
   x402Sales = 0;
   x402Volume = 0n;
   externalVolume = 0n;
+  // price discovery
+  marketRates = new Map<string, bigint>(); // EMA of winning price per skill
+  priceHistory: { t: number; skill: string; price: string; cleared: boolean }[] = [];
+  pricedOut = 0;
 
   constructor(public readonly society: Society) {
     this.flow = new FlowMeter(new ChainSettlement());
@@ -79,28 +90,77 @@ export class Economy {
     this.emitter.emit("event", e);
   }
 
-  /** Broker: pick the least-loaded worker whose reputation is non-negative (fraudsters excluded). */
-  private async selectWorker(skill: string): Promise<Agent | undefined> {
+  private activeJobsFor(workerId: bigint): number {
+    return this.pending.filter((p) => p.worker.agentId === workerId).length;
+  }
+
+  /** A worker's quote = baseRate scaled up by its load (busy → dearer) and reputation (proven → premium). */
+  private quote(w: Agent, score: bigint, activeJobs: number): bigint {
+    const base = w.baseRate > 0n ? w.baseRate : usd(1);
+    const repPremiumBps = (REP_MAX_BPS * clampRep(score)) / 10000n;
+    const multBps = 10000n + LOAD_BPS * BigInt(activeJobs) + repPremiumBps;
+    return (base * multBps) / 10000n;
+  }
+
+  private recordPrice(skill: string, price: bigint, cleared: boolean) {
+    if (cleared) {
+      const prev = this.marketRates.get(skill) ?? price;
+      this.marketRates.set(skill, (prev * 7n + price) / 8n); // EMA of winning prices
+    }
+    this.priceHistory.push({ t: this.tickN, skill, price: fmtUsd(price), cleared });
+    if (this.priceHistory.length > 400) this.priceHistory.shift();
+  }
+
+  /** Broker: eligible workers bid a quote; pick the best VALUE (quote discounted by reputation).
+   *  Competition (cheaper newcomers) + reliability (high-rep premium) both move prices → discovery. */
+  private async selectWorker(skill: string): Promise<{ worker: Agent; price: bigint } | undefined> {
     const workers = this.society.byRole("worker").filter((w) => w.skill === skill);
     if (workers.length === 0) return undefined;
     const scored = await Promise.all(workers.map(async (w) => ({ w, score: await A.scoreOf(w.agentId) })));
-    // Reputation gate: NEVER route to a known-bad (negative-rep) worker — no fallback to the bad pool.
-    const eligible = scored.filter((s) => s.score >= 0n);
+    const eligible = scored.filter((s) => s.score >= 0n); // never route to a known-bad worker
     if (eligible.length === 0) return undefined;
-    eligible.sort((a, b) => a.w.jobsDone - b.w.jobsDone || Number(a.w.agentId - b.w.agentId));
-    return eligible[0].w;
+    const bids = eligible.map((s) => {
+      const price = this.quote(s.w, s.score, this.activeJobsFor(s.w.agentId));
+      const valueScore = (price * 10000n) / (10000n + (VALUE_REP_BPS * clampRep(s.score)) / 10000n);
+      return { worker: s.w, price, valueScore };
+    });
+    bids.sort((a, b) =>
+      a.valueScore < b.valueScore ? -1 : a.valueScore > b.valueScore ? 1 : Number(a.worker.agentId - b.worker.agentId)
+    );
+    return { worker: bids[0].worker, price: bids[0].price };
   }
 
-  /** A consumer posts a job (escrow). `force` pins the worker (used to inject a fraud job). */
+  /** A consumer posts a job at a DISCOVERED price. `force` pins the worker (used to inject a fraud job). */
   async postNeed(consumer: Agent, force?: Agent): Promise<void> {
     const broker = this.society.byRole("broker")[0];
     const validator = this.society.byRole("validator")[0];
+    if (!broker || !validator) return;
     const kind: TaskKind = force ? (force.skill as TaskKind) : TASK_KINDS[this.salt % TASK_KINDS.length];
     const task = makeTask(this.salt++, kind);
-    const worker = force ?? (await this.selectWorker(kind));
-    if (!worker || !broker || !validator) return;
 
-    const amount = JOB_AMOUNT();
+    let worker: Agent;
+    let amount: bigint;
+    if (force) {
+      worker = force;
+      amount = this.quote(force, await A.scoreOf(force.agentId), this.activeJobsFor(force.agentId));
+    } else {
+      const sel = await this.selectWorker(kind);
+      if (!sel) return;
+      worker = sel.worker;
+      amount = sel.price;
+    }
+
+    // demand elasticity: if the best market quote exceeds willingness-to-pay, the job does not clear
+    if (!force && amount > WTP()) {
+      this.pricedOut += 1;
+      this.recordPrice(kind, amount, false);
+      this.log("priced_out", `⏭️ ${consumer.name} priced out of ${kind} — best quote $${fmtUsd(amount)} > WTP $${fmtUsd(WTP())}`, {
+        kind,
+        quote: fmtUsd(amount),
+      });
+      return;
+    }
+
     const auth = consumer.firewall.authorize(amount);
     if (!auth.ok) {
       this.firewallBlocks++;
@@ -126,6 +186,7 @@ export class Economy {
     consumer.firewall.record(amount);
     consumer.spent += amount;
     consumer.jobsPosted++;
+    this.recordPrice(task.kind, amount, true);
     this.pending.push({ jobId, task, consumer, worker, validator, broker, amount, state: "Open" });
     this.log("job_posted", `${consumer.name} → ${worker.name} · ${task.kind} · $${fmtUsd(amount)} (via ${broker.name})`, {
       jobId: jobId.toString(),
@@ -333,6 +394,9 @@ export class Economy {
       firewallBlocks: this.firewallBlocks,
       x402Sales: this.x402Sales,
       x402Volume: fmtUsd(this.x402Volume),
+      marketRates: Object.fromEntries([...this.marketRates].map(([k, v]) => [k, fmtUsd(v)])),
+      priceHistory: this.priceHistory.slice(-40),
+      pricedOut: this.pricedOut,
       pending: this.pending.length,
       agents: this.society.agents.length,
       leaderboard,

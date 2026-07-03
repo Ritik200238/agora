@@ -168,6 +168,11 @@ Three kinds of SSE messages arrive on this one stream:
     "settlementMode": "local",      // "local" (ERC-20) or "arc" (Circle Gateway)
     "x402Sales": 6,                 // count of per-call x402 purchases settled
     "x402Volume": "0.06",           // USDC moved over the x402 boundary (string)
+    "marketRates": { "sum": "0.85", "sort": "1.30", "max": "1.11" }, // DISCOVERED price per skill (EMA of winning quotes)
+    "priceHistory": [               // recent quotes (last 40) — drives a price chart if you want one
+      { "t": 12, "skill": "sum", "price": "0.88", "cleared": true }
+    ],
+    "pricedOut": 3,                 // jobs that didn't clear because the quote exceeded willingness-to-pay
     "pending": 2,                   // jobs currently in flight
     "agents": 11,
     "leaderboard": [                // sorted by score desc
@@ -207,6 +212,7 @@ Every live event has a `kind`. You decide how each reads, but here's their meani
 | `job_rejected` | **Fraud caught** — tampered work rejected, bond slashed | alert / negative | `{ worker, kind, slashed }` |
 | `stream_settled` | A producer's metered feed batch settled | positive (subtle) | `{ amount }` |
 | `x402_sale` | A consumer bought a one-off data point over the x402 boundary | positive (subtle) | `{ amount }` |
+| `priced_out` | A job didn't clear — the best quote exceeded the consumer's willingness-to-pay | neutral / info | `{ kind, quote }` |
 | `firewall_block` | A spend was blocked (incl. **hijack** attempts) | alert / protective | `{ agent, reason }` |
 | `tick` | Internal heartbeat (you can ignore these) | — | snapshot-ish |
 

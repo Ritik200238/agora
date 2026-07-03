@@ -46,6 +46,11 @@ export async function buildSociety(cast: AgentConfig[] = DEFAULT_CAST): Promise<
     await usdcMint(faucet, D.usdc, a.address, AGENT_FUNDING());
   }
 
+  // give each worker a per-skill base quote (varied → real price differences drive discovery)
+  for (const a of agents) {
+    if (a.role === "worker") a.baseRate = usd(0.8) + usd(0.1) * BigInt(a.cfg.keyIndex % 5);
+  }
+
   // workers + producers post a reputation bond (reputation-as-collateral)
   for (const a of agents) {
     if (a.role === "worker" || a.role === "producer") {
