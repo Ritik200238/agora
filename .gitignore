@@ -20,3 +20,6 @@ circle-agent/
 # local UI-verification artifacts (browser screenshots)
 .playwright-mcp/
 /*.png
+
+# Vercel CLI link/build artifacts
+.vercel/
