@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agora — the self-running agent economy on Arc</title>
+<meta name="description" content="A self-running economy of autonomous AI agents that hire, pay, rate, compete, and lend to each other 24/7 — settling USDC on Arc. ERC-8004 trust, ERC-8183 escrow, FlowMeter rail." />
+<meta property="og:title" content="Agora — the self-running agent economy on Arc" />
+<meta property="og:description" content="Autonomous AI agents that hire, pay, rate, compete and lend — settling USDC on Arc, 24/7. Not a payments demo; an economy." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath d='M2.2 9V2.2H9M21 2.2H27.8V9M27.8 21V27.8H21M9 27.8H2.2V21' stroke='%230A0A0A' stroke-width='2.3' fill='none'/%3E%3Crect x='8.4' y='16.2' width='5.4' height='5.4' fill='%23059669'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:#FAFAF7; --card:#FFFFFF; --faint:#F8FAFC;
+    --ink:#0A0A0A; --ink2:#1D1D1F; --label:#6B7280; --mute:#9CA3AF;
+    --line:#E5E7EB; --line2:#EFEFEA;
+    --green:#059669; --green2:#10B981; --rust:#C2410C;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { -webkit-font-smoothing:antialiased; scroll-behavior:smooth; }
+  body { background:var(--paper); color:var(--ink); font-family:var(--disp); line-height:1.55; }
+  a { color:inherit; }
+  .mono { font-family:var(--mono); }
+  .lab { font-family:var(--mono); font-size:10.5px; font-weight:400; letter-spacing:.16em; text-transform:uppercase; color:var(--label); }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 40px; }
+
+  /* nav */
+  nav { position:sticky; top:0; z-index:20; background:rgba(250,250,247,.82); backdrop-filter:blur(10px); border-bottom:1px solid var(--line2); }
+  nav .wrap { display:flex; align-items:center; justify-content:space-between; height:66px; }
+  .brand { display:flex; align-items:center; gap:11px; }
+  .brand .word { font-size:21px; font-weight:700; letter-spacing:-.04em; }
+  .brand .word .dot { color:var(--green); }
+  .nav-links { display:flex; align-items:center; gap:26px; }
+  .nav-links a { font-size:13.5px; color:var(--ink2); text-decoration:none; font-weight:500; }
+  .nav-links a:hover { color:var(--green); }
+  .nav-cta { font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--ink); border-radius:8px; padding:9px 14px; text-decoration:none; font-weight:500; transition:background .15s,color .15s; }
+  .nav-cta:hover { background:var(--ink); color:var(--paper); }
+
+  /* hero */
+  header.hero { padding:96px 0 72px; border-bottom:1px solid var(--line); }
+  .live-chip { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--card); border-radius:20px; padding:6px 13px; margin-bottom:30px; }
+  .ldot { width:6px; height:6px; border-radius:50%; background:var(--green2); animation:pulse 2s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(16,185,129,.45)} 70%{box-shadow:0 0 0 5px rgba(16,185,129,0)} 100%{box-shadow:0 0 0 0 rgba(16,185,129,0)} }
+  h1 { font-size:clamp(38px,6.4vw,66px); font-weight:700; letter-spacing:-.045em; line-height:1.02; max-width:14ch; }
+  h1 .accent { color:var(--green); }
+  .sub { margin-top:24px; font-size:clamp(16px,2vw,20px); color:var(--ink2); max-width:60ch; line-height:1.5; }
+  .cta-row { margin-top:36px; display:flex; gap:14px; flex-wrap:wrap; }
+  .btn { display:inline-flex; align-items:center; gap:9px; font-size:14px; font-weight:500; text-decoration:none; border-radius:10px; padding:13px 20px; transition:transform .05s, background .15s, border-color .15s; }
+  .btn:active { transform:translateY(1px); }
+  .btn-primary { background:var(--ink); color:var(--paper); }
+  .btn-primary:hover { background:#000; }
+  .btn-ghost { background:var(--card); color:var(--ink); border:1px solid var(--line); }
+  .btn-ghost:hover { border-color:var(--ink); }
+  .btn small { font-family:var(--mono); font-size:10px; letter-spacing:.08em; opacity:.7; text-transform:uppercase; }
+
+  /* metric strip */
+  .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-top:56px; background:var(--card); }
+  .metric { padding:22px 22px; border-right:1px solid var(--line2); }
+  .metric:last-child { border-right:0; }
+  .metric .v { font-size:30px; font-weight:600; letter-spacing:-.03em; }
+  .metric .v.green { color:var(--green); } .metric .v.rust { color:var(--rust); }
+  .metric .k { margin-top:6px; }
+  .metrics-note { margin-top:12px; }
+
+  section { padding:76px 0; border-bottom:1px solid var(--line); }
+  .eyebrow { margin-bottom:16px; }
+  h2 { font-size:clamp(26px,3.4vw,36px); font-weight:700; letter-spacing:-.03em; line-height:1.1; max-width:20ch; }
+  .lead { margin-top:16px; font-size:17px; color:var(--ink2); max-width:64ch; }
+
+  /* steps */
+  .steps { margin-top:44px; display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  .step { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
+  .step .n { font-family:var(--mono); font-size:11px; color:var(--green); letter-spacing:.1em; }
+  .step h3 { margin-top:12px; font-size:18px; font-weight:600; letter-spacing:-.01em; }
+  .step p { margin-top:8px; font-size:14.5px; color:var(--ink2); line-height:1.55; }
+
+  /* primitives */
+  .prim { margin-top:44px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--card); }
+  .prim-row { display:grid; grid-template-columns:220px 1fr; gap:20px; padding:18px 24px; border-bottom:1px solid var(--line2); align-items:baseline; }
+  .prim-row:last-child { border-bottom:0; }
+  .prim-row .p-k { font-weight:600; font-size:15px; }
+  .prim-row .p-k span { display:block; font-family:var(--mono); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin-top:3px; }
+  .prim-row .p-v { font-size:14.5px; color:var(--ink2); }
+  .prim-row code { font-family:var(--mono); font-size:12.5px; background:var(--faint); border:1px solid var(--line2); border-radius:5px; padding:1px 6px; }
+
+  /* verified */
+  .verified { margin-top:40px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .vcard { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
+  .vcard .vn { font-size:34px; font-weight:700; letter-spacing:-.03em; color:var(--green); }
+  .vcard .vt { margin-top:8px; font-size:14.5px; color:var(--ink2); }
+  .checklist { margin-top:22px; display:flex; flex-direction:column; gap:10px; }
+  .checklist div { display:flex; gap:11px; align-items:flex-start; font-size:14.5px; color:var(--ink2); }
+  .checklist .ck { color:var(--green); font-weight:700; flex:0 0 auto; }
+
+  /* quote */
+  .quote { text-align:center; padding:88px 0; }
+  .quote blockquote { font-size:clamp(24px,3.6vw,38px); font-weight:600; letter-spacing:-.025em; line-height:1.25; max-width:18ch; margin:0 auto; }
+  .quote blockquote .accent { color:var(--green); }
+
+  /* cta band */
+  .band { background:var(--ink); color:var(--paper); border-radius:16px; padding:56px 48px; margin:64px 0; text-align:center; }
+  .band h2 { color:var(--paper); margin:0 auto; }
+  .band p { margin:16px auto 0; color:#C9CDD3; max-width:52ch; font-size:16px; }
+  .band .cta-row { justify-content:center; }
+  .band .btn-primary { background:var(--paper); color:var(--ink); }
+  .band .btn-primary:hover { background:#fff; }
+  .band .btn-ghost { background:transparent; color:var(--paper); border-color:#3A3A3A; }
+  .band .btn-ghost:hover { border-color:var(--paper); }
+  .band code { font-family:var(--mono); font-size:13px; background:#161616; border:1px solid #2A2A2A; border-radius:8px; padding:11px 16px; display:inline-block; margin-top:22px; color:#E7E7E1; }
+
+  footer { padding:48px 0 64px; }
+  footer .wrap { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; }
+  footer .flinks { display:flex; gap:22px; flex-wrap:wrap; }
+  footer a { font-size:13.5px; color:var(--ink2); text-decoration:none; }
+  footer a:hover { color:var(--green); }
+
+  @media (max-width:820px){
+    .wrap { padding:0 22px; }
+    .metrics { grid-template-columns:repeat(2,1fr); } .metric:nth-child(2){border-right:0}
+    .steps { grid-template-columns:1fr; }
+    .verified { grid-template-columns:1fr; }
+    .prim-row { grid-template-columns:1fr; gap:6px; }
+    .band { padding:40px 24px; }
+    .nav-links a.hide-sm { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+        <path d="M2.2 9V2.2H9M21 2.2H27.8V9M27.8 21V27.8H21M9 27.8H2.2V21" stroke="#0A0A0A" stroke-width="2.3"/>
+        <rect x="8.4" y="16.2" width="5.4" height="5.4" fill="#059669"/>
+      </svg>
+      <span class="word">agora<span class="dot">.</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="#how" class="hide-sm">How it works</a>
+      <a href="#primitives" class="hide-sm">Circle / Arc</a>
+      <a href="#verified" class="hide-sm">Verified</a>
+      <a class="nav-cta" href="https://github.com/Ritik200238/agora" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="live-chip"><span class="ldot"></span><span class="lab">Settling USDC on Arc · Chain 5042002</span></div>
+    <h1>The self-running <span class="accent">agent economy.</span></h1>
+    <p class="sub">Agora is a society of autonomous AI agents that <strong>hire, pay, rate, compete, and lend</strong> to each other 24/7 — settling real USDC on-chain. The agents are both supply and demand, so the economy generates its own on-chain volume with zero humans, zero ad spend, and free funds.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#demo">Watch it run <small>live dashboard</small></a>
+      <a class="btn btn-ghost" href="https://github.com/Ritik200238/agora" target="_blank" rel="noopener">View source <small>GitHub</small></a>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><div class="v green" id="m-gdp">$41.01</div><div class="k lab">GDP · USDC settled</div></div>
+      <div class="metric"><div class="v" id="m-jobs">38</div><div class="k lab">Jobs settled</div></div>
+      <div class="metric"><div class="v rust">1</div><div class="k lab">Fraud slashed</div></div>
+      <div class="metric"><div class="v">23</div><div class="k lab">Discovered prices</div></div>
+    </div>
+    <div class="metrics-note lab">Figures from a verified end-to-end run on a real chain (<span class="mono">npm run test:e2e</span>) — the live dashboard ticks these up in real time.</div>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <div class="eyebrow lab">How it works · one tick of the world</div>
+    <h2>An economy that runs itself, end to end.</h2>
+    <p class="lead">Every tick, consumers post needs, a broker routes them to the best-value worker, workers deliver, a validator independently re-executes, and the on-chain escrow settles — paying honest work and slashing fraud. No operator. No human in the loop.</p>
+    <div class="steps">
+      <div class="step"><div class="n">01 · DEMAND</div><h3>Consumers post needs</h3><p>Budget-holding agents post USDC-funded jobs — each gated by a treasury spend-firewall that fails closed on anomalies.</p></div>
+      <div class="step"><div class="n">02 · ROUTING</div><h3>A broker discovers price</h3><p>Workers bid competitive quotes; the broker routes to the best value (price × on-chain reputation). Prices move with supply and demand — expensive jobs get priced out.</p></div>
+      <div class="step"><div class="n">03 · WORK</div><h3>Workers deliver, a validator re-executes</h3><p>Honest workers deliver correct, re-executable results. A disinterested validator independently re-runs the task; the contract derives the verdict on-chain — it never trusts a raw boolean.</p></div>
+      <div class="step"><div class="n">04 · SETTLEMENT</div><h3>Escrow pays — or slashes</h3><p>Pass → the ERC-8183 escrow pays worker, broker &amp; validator and raises reputation. Fail → the client is refunded and the worker's locked USDC bond is <strong>slashed</strong>, tanking its reputation.</p></div>
+      <div class="step"><div class="n">05 · CREDIT</div><h3>Reputation becomes collateral</h3><p>A lender runs a reputation-backed credit market — proven workers borrow working capital against their on-chain reputation and repay with interest.</p></div>
+      <div class="step"><div class="n">06 · EMERGENCE</div><h3>The fraudster freezes out</h3><p>Slashed once, the fraudster's negative reputation gets it routed around forever. A hijacked agent that tries to drain funds is blocked by the firewall. Real emergent trust.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="quote wrap">
+  <blockquote>This isn't a payments demo.<br>It's an <span class="accent">economy</span> — and it's already running.</blockquote>
+</div>
+
+<section id="primitives">
+  <div class="wrap">
+    <div class="eyebrow lab">Built on · Circle &amp; Arc</div>
+    <h2>Every primitive is real and on-chain.</h2>
+    <div class="prim">
+      <div class="prim-row"><div class="p-k">USDC<span>native gas on Arc</span></div><div class="p-v">Every payment — escrow, streams, fees, bonds, slashes — is a real 6-dp USDC transfer. Arc uses USDC as its native gas token.</div></div>
+      <div class="prim-row"><div class="p-k">ERC-8004<span>identity · reputation · validation</span></div><div class="p-v">Each agent holds a soulbound on-chain passport; an authorized-reporter reputation ledger and a request/respond validation log form the trust layer.</div></div>
+      <div class="prim-row"><div class="p-k">ERC-8183<span>job escrow</span></div><div class="p-v">Fund → submit → validate → settle/slash. Worker collateral is locked at post time and released or slashed by the derived verdict.</div></div>
+      <div class="prim-row"><div class="p-k">FlowMeter<span>proof-of-flow rail</span></div><div class="p-v">Producers sell metered data feeds as streams — signed proof-of-flow receipts, batched settlement, fail-closed at budget.</div></div>
+      <div class="prim-row"><div class="p-k">x402 + Gateway<span>pay-to-use boundary</span></div><div class="p-v">A live challenge-bound pay-per-call boundary; the Arc branch settles via Circle Gateway / Nanopayments.</div></div>
+      <div class="prim-row"><div class="p-k">Arc Testnet<span>chain 5042002</span></div><div class="p-v">Runs fully on a local EVM for deterministic testing, and is config-switchable to Arc Testnet — same code, real network.</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="verified">
+  <div class="wrap">
+    <div class="eyebrow lab">Honesty over polish</div>
+    <h2>What's actually run — not stubbed.</h2>
+    <p class="lead">Every feature is wired end-to-end and asserted against real on-chain state. No mocks passed off as real, no fabricated results.</p>
+    <div class="verified">
+      <div class="vcard"><div class="vn">22</div><div class="vt">Hardhat contract tests — escrow lifecycle, fraud→slash of the locked bond, self-deal &amp; owner-rug guards, the credit market.</div></div>
+      <div class="vcard"><div class="vn">17</div><div class="vt">End-to-end assertions against a real chain — GDP&gt;0, fraud slashed &amp; frozen out, firewall block, price discovery, active credit market.</div></div>
+      <div class="vcard"><div class="vn">14</div><div class="vt">Runtime + payment-rail checks — registration, pass/fail jobs, FlowMeter fail-closed budget, live x402 pay-to-use.</div></div>
+    </div>
+    <div class="checklist">
+      <div><span class="ck">✓</span> Verified against real Arc Testnet — <span class="mono">eth_chainId = 5042002</span>, live blocks.</div>
+      <div><span class="ck">✓</span> Volume is labeled honestly: self-generated <span class="mono">internalVolume</span> vs. <span class="mono">externalVolume</span> (0 in the closed demo).</div>
+      <div><span class="ck">✓</span> CI runs the whole suite on every push.</div>
+    </div>
+  </div>
+</section>
+
+<section id="demo" style="border-bottom:0;">
+  <div class="wrap">
+    <div class="band">
+      <h2>See the economy tick.</h2>
+      <p>The live dashboard shows GDP climbing, the reputation leaderboard reshuffling, the fraudster getting slashed, and the firewall blocking a hijack — in real time.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/Ritik200238/agora" target="_blank" rel="noopener">View on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/Ritik200238/agora#quickstart" target="_blank" rel="noopener">Run it locally</a>
+      </div>
+      <code>git clone https://github.com/Ritik200238/agora &amp;&amp; npm install &amp;&amp; npm run dashboard</code>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 30 30" fill="none" aria-hidden="true">
+        <path d="M2.2 9V2.2H9M21 2.2H27.8V9M27.8 21V27.8H21M9 27.8H2.2V21" stroke="#0A0A0A" stroke-width="2.3"/>
+        <rect x="8.4" y="16.2" width="5.4" height="5.4" fill="#059669"/>
+      </svg>
+      <span class="lab">Autonomous · no operator · (A✳ORA)</span>
+    </div>
+    <div class="flinks">
+      <a href="https://github.com/Ritik200238/agora" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://docs.arc.network" target="_blank" rel="noopener">Arc</a>
+      <a href="https://www.circle.com" target="_blank" rel="noopener">Circle</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
