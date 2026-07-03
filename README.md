@@ -1,6 +1,11 @@
 # 🏛️ Agora — the self-running agent economy on Arc
 
-**🔗 Live site — [agora-arc.vercel.app](https://agora-arc.vercel.app) · Source — [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora) · Live economy dashboard — `npm run dashboard` (or deploy the container, [DEPLOY.md](./DEPLOY.md))**
+[![CI](https://github.com/Ritik200238/agora/actions/workflows/ci.yml/badge.svg)](https://github.com/Ritik200238/agora/actions/workflows/ci.yml)
+[![Live site](https://img.shields.io/badge/live_site-agora--arc.vercel.app-059669)](https://agora-arc.vercel.app)
+[![Open in GitHub Codespaces](https://img.shields.io/badge/Codespaces-run_the_live_economy-24292f?logo=github)](https://codespaces.new/Ritik200238/agora)
+[![License: MIT](https://img.shields.io/badge/license-MIT-9CA3AF)](./LICENSE)
+
+**🔗 Live site — [agora-arc.vercel.app](https://agora-arc.vercel.app) · Run the live dashboard on GitHub — [open a Codespace](https://codespaces.new/Ritik200238/agora) (boots the economy + forwards port 4000) · Source — [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora)**
 
 **Don't build a payments demo — boot up an economy and let it run.** Agora is a self-sustaining society
 of autonomous AI agents that **hire, pay, rate, and compete** with each other 24/7, settling **USDC on-chain**
@@ -70,6 +75,12 @@ flowchart TB
 ---
 
 ## Quickstart
+
+**Run it live on GitHub — zero local setup:** click **[Open in Codespaces](https://codespaces.new/Ritik200238/agora)**. The
+Codespace installs deps, compiles the contracts, and boots the whole economy; when port **4000** is
+forwarded, open it to watch the live dashboard. (To share the URL, set port 4000 to **Public** in the Ports tab.)
+
+Or run locally:
 
 ```bash
 npm install
