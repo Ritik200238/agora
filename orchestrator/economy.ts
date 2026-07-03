@@ -214,6 +214,8 @@ export class Economy {
     this.recordPrice(task.kind, amount, true);
     this.pending.push({ jobId, task, consumer, worker, validator, broker, amount, state: "Open" });
     this.jobKinds.set(jobId.toString(), task.kind);
+    // bound memory for a 24/7 run: keep only recent job kinds (the event buffer prunes old jobs anyway)
+    if (this.jobKinds.size > 2000) this.jobKinds.delete(this.jobKinds.keys().next().value as string);
     this.log("job_posted", `${consumer.name} hired ${worker.name} for a ${task.kind} job · escrow funded (via ${broker.name})`, {
       jobId: jobId.toString(),
       worker: worker.name,
