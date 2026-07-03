@@ -1,0 +1,21 @@
+{
+  "name": "Agora — self-running agent economy",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {},
+  "forwardPorts": [4000],
+  "portsAttributes": {
+    "4000": {
+      "label": "Agora live dashboard",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "postCreateCommand": "npm install && npx hardhat compile",
+  "postAttachCommand": {
+    "boot-economy": "npm run dashboard"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["NomicFoundation.hardhat-solidity"]
+    }
+  }
+}
