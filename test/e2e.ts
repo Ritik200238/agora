@@ -59,6 +59,8 @@ async function main() {
       `${econ.jobsCompleted}+${econ.jobsRejected}+${econ.jobsExpired} <= ${econ.jobsTotal}`
     );
     check("leaderboard covers every agent", snap.leaderboard.length === society.agents.length, `${snap.leaderboard.length}/${society.agents.length}`);
+    const distinctPrices = new Set((snap.priceHistory || []).map((p: any) => p.price));
+    check("price discovery: job prices actually vary", distinctPrices.size > 1, `${distinctPrices.size} distinct prices; market rates=${JSON.stringify(snap.marketRates)}`);
     check("x402 boundary is live (real sales settled)", eco.x402Sales > 0, `${eco.x402Sales} sales, $${eco.x402Volume === 0n ? "0" : ""}${(Number(eco.x402Volume) / 1e6).toFixed(2)}`);
     check("external (non-agent) volume reported separately and honest", eco.externalVolume === 0n, "0 in the closed demo");
     // anomaly cutoff: hammering the firewall past the threshold hard-halts the agent (dead-man behaviour)
