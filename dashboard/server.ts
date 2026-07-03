@@ -50,11 +50,16 @@ async function main() {
       res.status(400).json({ error: "bad job id" });
     }
   });
+  app.get("/api/agent/:name", async (req, res) => {
+    const d = await eco.agentDetail(req.params.name);
+    if (!d) return res.status(404).json({ error: "unknown agent" });
+    res.json(d);
+  });
   app.post("/api/inject-fraud", async (_req, res) => {
     await eco.injectFraud();
     res.json({ ok: true });
   });
-  app.post("/api/hijack", (_req, res) => res.json(eco.hijackAttempt("Atlas")));
+  app.post("/api/hijack", (_req, res) => res.json(eco.hijackAttempt("Nova-1")));
 
   await new Promise<void>((resolve) => app.listen(PORT, resolve));
   console.log(`\n🏛️  Agora dashboard live → http://localhost:${PORT}\n`);
@@ -69,7 +74,7 @@ async function main() {
   const tickOnce = async () => {
     await eco.tick();
     if (eco.tickN === 4) await eco.injectFraud(); // scripted fraud→slash beat
-    if (eco.tickN === 9) eco.hijackAttempt("Atlas"); // scripted hijack→firewall beat
+    if (eco.tickN === 9) eco.hijackAttempt("Nova-1"); // scripted hijack→firewall beat
     if (eco.tickN % 2 === 0) await pushSnapshot();
   };
 

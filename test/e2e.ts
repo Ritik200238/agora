@@ -23,7 +23,7 @@ async function main() {
     for (let i = 0; i < TICKS; i++) {
       await eco.tick();
       if (eco.tickN === 4) await eco.injectFraud();
-      if (eco.tickN === 8) eco.hijackAttempt("Atlas");
+      if (eco.tickN === 8) eco.hijackAttempt("Nova-1");
     }
 
     const snap = await eco.snapshot();
@@ -67,9 +67,9 @@ async function main() {
     check("x402 boundary is live (real sales settled)", eco.x402Sales > 0, `${eco.x402Sales} sales, $${eco.x402Volume === 0n ? "0" : ""}${(Number(eco.x402Volume) / 1e6).toFixed(2)}`);
     check("external (non-agent) volume reported separately and honest", eco.externalVolume === 0n, "0 in the closed demo");
     // anomaly cutoff: hammering the firewall past the threshold hard-halts the agent (dead-man behaviour)
-    eco.hijackAttempt("Atlas");
-    eco.hijackAttempt("Atlas");
-    check("treasury anomaly cutoff halts a hammered agent", society.byName("Atlas")!.firewall.halted, `blocks=${society.byName("Atlas")!.firewall.blocks}`);
+    eco.hijackAttempt("Nova-1");
+    eco.hijackAttempt("Nova-1");
+    check("treasury anomaly cutoff halts a hammered agent", society.byName("Nova-1")!.firewall.halted, `blocks=${society.byName("Nova-1")!.firewall.blocks}`);
   } finally {
     chain.stop();
   }

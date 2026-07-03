@@ -15,15 +15,15 @@ export interface Society {
 /** The default Agora cast: consumers, a broker, specialized workers, a validator, a producer,
  *  and one fraudster (`honest:false`) used to demonstrate automatic slashing. */
 export const DEFAULT_CAST: AgentConfig[] = [
-  { name: "Atlas", role: "consumer", keyIndex: 1, honest: true, skill: "" },
-  { name: "Beacon", role: "consumer", keyIndex: 2, honest: true, skill: "" },
-  { name: "Hermes", role: "broker", keyIndex: 3, honest: true, skill: "" },
-  { name: "Sorter-1", role: "worker", keyIndex: 4, honest: true, skill: "sort" },
+  { name: "Nova-1", role: "consumer", keyIndex: 1, honest: true, skill: "" },
+  { name: "Vega-2", role: "consumer", keyIndex: 2, honest: true, skill: "" },
+  { name: "Relay", role: "broker", keyIndex: 3, honest: true, skill: "" },
+  { name: "Sorta-1", role: "worker", keyIndex: 4, honest: true, skill: "sort" },
   { name: "Summer-1", role: "worker", keyIndex: 5, honest: true, skill: "sum" },
   { name: "Maxer-1", role: "worker", keyIndex: 6, honest: true, skill: "max" },
-  { name: "Themis", role: "validator", keyIndex: 7, honest: true, skill: "" },
-  { name: "Oracle", role: "producer", keyIndex: 8, honest: true, skill: "feed" },
-  { name: "Sorter-2", role: "worker", keyIndex: 9, honest: true, skill: "sort" },
+  { name: "Veritu", role: "validator", keyIndex: 7, honest: true, skill: "" },
+  { name: "Flowline", role: "producer", keyIndex: 8, honest: true, skill: "feed" },
+  { name: "Sorta-2", role: "worker", keyIndex: 9, honest: true, skill: "sort" },
   { name: "Summer-2", role: "worker", keyIndex: 10, honest: true, skill: "sum" },
   { name: "Grift", role: "worker", keyIndex: 11, honest: false, skill: "sum" }, // the fraudster
   { name: "Banca", role: "lender", keyIndex: 12, honest: true, skill: "" }, // market-maker / lender
