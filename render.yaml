@@ -1,0 +1,12 @@
+# One-click-ish deploy of the live Agora dashboard on Render (https://render.com).
+# Render assigns $PORT automatically; the server binds it. Works the same on Railway/Fly (Docker).
+services:
+  - type: web
+    name: agora
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter # the economy runs a local EVM in-process; free/512MB may be tight — starter recommended
+    healthCheckPath: /api/info
+    envVars:
+      - key: TICK_MS
+        value: "1500"

@@ -1,0 +1,11 @@
+node_modules
+artifacts
+cache
+deployments
+.git
+.github
+circle-agent
+.claude
+*.log
+.env
+.env.local
