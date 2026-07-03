@@ -15,15 +15,18 @@ the economy generates its own **internal** on-chain volume — with zero humans,
 Each tick, the economy runs itself:
 
 1. **Consumers** post needs (USDC-funded jobs) — gated by a **treasury spend-firewall**.
-2. A **Broker** routes each job to the best **reputation-gated worker** (fraudsters are excluded).
+2. A **Broker** collects competitive **quotes** and routes each job to the best value (price × reputation);
+   the price is **discovered**, not fixed, and expensive jobs get **priced out** (demand elasticity).
 3. **Workers** deliver objective, re-executable work (honest = correct; a fraudster = tampered).
-4. A **Validator** independently **re-executes** and attests on-chain.
+4. A **Validator** independently **re-executes** and attests on-chain (the contract derives the verdict).
 5. The **JobBoard escrow** settles: pass → pay worker/broker/validator + raise reputation; fail → **refund
-   the client, slash the worker's USDC bond, tank its reputation.**
+   the client, slash the worker's locked USDC bond, tank its reputation.**
 6. A **Producer** sells a metered data feed over **FlowMeter** streams (proof-of-flow receipts, batched settle).
+7. A **Lender** runs a reputation-backed **credit market** — reputable workers borrow working capital against
+   their on-chain reputation and repay with interest.
 
-**Emergent result:** honest workers specialize and earn; the fraudster is slashed once and then *frozen out*;
-a hijacked agent that tries to drain funds is **physically blocked by the firewall**.
+**Emergent result:** prices move with supply/demand; honest workers earn *and* access credit; the fraudster is
+slashed once and then *frozen out*; a hijacked agent that tries to drain funds is **blocked by the firewall**.
 
 ```mermaid
 flowchart TB
@@ -55,7 +58,9 @@ flowchart TB
 | **ERC-8004 Reputation** | `contracts/ReputationRegistry.sol` — authorized-reporter on-chain track record |
 | **ERC-8004 Validation** | `contracts/ValidationRegistry.sol` — request/respond attestation log |
 | **ERC-8183 job escrow** | `contracts/JobBoard.sol` — fund → submit → validate → settle/slash |
-| **Reputation-as-collateral** | `contracts/ReputationBond.sol` — post/withdraw/slash USDC bonds |
+| **Reputation-as-collateral** | `contracts/ReputationBond.sol` — post/withdraw/**lock**/slash USDC bonds |
+| **Reputation-backed credit** | `contracts/LendingPool.sol` — lenders deposit USDC; workers borrow against on-chain reputation |
+| **Price discovery** | `orchestrator/economy.ts` — competitive worker quotes + demand elasticity (dynamic prices) |
 | **x402 service boundary** | `rail/x402.ts` — challenge-bound pay-to-use; LIVE in the economy (`x402Buy`), settled locally by a real on-chain USDC transfer |
 | **Circle Gateway / Nanopayments** | `rail/x402.ts` `arcGatewayPay()` / `arcGatewayMiddleware()` — the Arc settlement branch selected by `SETTLEMENT=arc`. SDK-correct + wired, but **runs only on Arc with funded keys (not exercised in CI)** |
 | **Treasury / spend policy** | `agents/treasury.ts` — fail-closed budgets + rate caps |
@@ -88,14 +93,16 @@ npm run deploy:local       # deploy onto a running local node
 
 ## What's verified (actually run, not stubbed)
 
-- **`npm run test:contracts`** — 14 Hardhat tests: escrow lifecycle, payout splits, **fraud→slash of the
-  locked bond**, enforced-collateral (postJob reverts if uncollateralized), locked-bond-can't-be-withdrawn,
-  self-deal & owner-rug guards, soulbound passports, gated validation, expiry, and every auth guard.
+- **`npm run test:contracts`** — 22 Hardhat tests: escrow lifecycle, payout splits, **fraud→slash of the
+  locked bond**, enforced-collateral, locked-bond-can't-be-withdrawn, self-deal & owner-rug guards, soulbound
+  passports, gated validation, expiry, concurrent-job lock/slash accounting, and the **credit market**
+  (reputation credit limits, under-collateralized borrow, repay+interest, default recovery).
 - **`npm run test:runtime`** — the TS runtime + rail against a real spawned chain: registration, a pass-job,
   a fraud-job→slash, FlowMeter metered streaming + fail-closed budget, and x402 pay-to-use.
 - **`npm run test:e2e`** — boots the full economy for 20 ticks and asserts, against **real on-chain state**:
-  GDP > 0, jobs completed, the fraudster slashed + reputation-negative + frozen out, the firewall blocking
-  a hijack, producer stream earnings, and consistent on-chain accounting. (Last run: **GDP $34.96, 38 jobs,
+  GDP > 0, jobs completed, the fraudster slashed + reputation-negative + frozen out, the firewall blocking a
+  hijack, producer stream earnings, **price discovery (prices actually vary)**, and an **active credit market**
+  (loans against reputation + lender interest). (Last run: **GDP $41, 38 jobs, 23 distinct prices, 2 loans,
   fraud slashed, hijack blocked, top worker +130 reputation**.)
 
 ---
@@ -132,10 +139,11 @@ AGORA_NETWORK=arcTestnet SETTLEMENT=arc npm run economy
   ERC-8183 escrow, reputation bonds, the FlowMeter rail, and the x402 pay-to-use boundary. *Wired for Arc but
   NOT exercised in CI:* Circle **Gateway / Nanopayments** via `@circle-fin/x402-batching` (the `SETTLEMENT=arc`
   branch of `x402Buy` / `arcGatewayPay`). The running economy settles via on-chain USDC transfers, not Gateway.
-- **Innovation (20%)** — an *economic* agent society settling real on-chain value, with **enforced**
-  reputation-as-collateral (locked + slashed), an on-chain-derived validator verdict, and proof-of-flow
-  metering. *Honest:* prices/fees are fixed constants — there is no price-discovery / market-maker layer yet,
-  so this is emergent *trust + routing*, not emergent *pricing*.
+- **Innovation (20%)** — an *economic* agent society settling real on-chain value: **discovered prices**
+  (competitive quotes + demand elasticity), a **reputation-backed credit market** (borrow against reputation),
+  **enforced** reputation-as-collateral (locked + slashed), an on-chain-derived validator verdict, and
+  proof-of-flow metering. *Honest:* the fraud + hijack beats are injected on cue for the demo, and worker
+  skills are assigned (not discovered) — the emergent dynamics are **pricing, credit, trust, and routing**.
 
 ### What runs vs. what's wired (read this)
 - **Runs + tested locally:** the entire economy on a local EVM — contracts, escrow, real slashing, FlowMeter,
@@ -148,15 +156,15 @@ AGORA_NETWORK=arcTestnet SETTLEMENT=arc npm run economy
 ## Repo map
 
 ```
-contracts/     ERC-8004 registries, ERC-8183 JobBoard, ReputationBond, MockUSDC
+contracts/     ERC-8004 registries, ERC-8183 JobBoard, ReputationBond, LendingPool (credit), MockUSDC
 shared/        chain clients, ABIs, USDC helpers, typed Agora contract client
 rail/          settlement (ERC-20), FlowMeter (proof-of-flow), x402 boundary (local + Arc Gateway)
-agents/        tasks, treasury firewall, Agent, society builder
-orchestrator/  economy.ts (the world loop) + run.ts (CLI)
-dashboard/     server.ts (SSE) + public/index.html (live UI)
-test/          contract tests, runtime smoke, end-to-end economy test, chain harness
-scripts/       deploy.js
-tdd.md         the full product spec · CLAUDE.md the build rules
+agents/        tasks, treasury firewall, Agent, society builder (incl. the Lender)
+orchestrator/  economy.ts (world loop: jobs, price discovery, credit, streams, x402) + run.ts (CLI)
+dashboard/     server.ts (SSE + /api/job trace) + public/index.html (live UI)
+test/          contract tests (22), runtime smoke, end-to-end economy test, chain harness
+scripts/       deploy.js  ·  Dockerfile + render.yaml + .github/workflows/ci.yml (deploy + CI)
+tdd.md         the full product spec · README/DEPLOY/SUBMISSION/docs/research-note · CLAUDE.md the build rules
 ```
 
 Built with Hardhat + viem + Express. Agents are rule-based (zero API keys, zero cost) so the economy runs
