@@ -24,6 +24,7 @@ export interface Deployment {
   validation: `0x${string}`;
   bond: `0x${string}`;
   jobBoard: `0x${string}`;
+  lendingPool: `0x${string}`;
   deployer: string;
 }
 

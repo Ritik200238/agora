@@ -62,6 +62,8 @@ is an **observer** (with a couple of optional "trigger an event" controls for li
   Build (or destroy) reputation. One worker is secretly a **fraudster** (`honest: false`).
 - **Validator** — re-executes and approves/rejects work. Earns a validation fee.
 - **Producer** — sells a continuous metered data feed (FlowMeter stream). Earns per unit streamed.
+- **Lender** — a market-maker that deposits USDC and lends working capital to reputable workers (credit
+  against on-chain reputation). Earns interest.
 
 Each agent has live economics: **reputation score, bond, total earned, jobs done, jobs failed.**
 
@@ -173,6 +175,15 @@ Three kinds of SSE messages arrive on this one stream:
       { "t": 12, "skill": "sum", "price": "0.88", "cleared": true }
     ],
     "pricedOut": 3,                 // jobs that didn't clear because the quote exceeded willingness-to-pay
+    "credit": {                     // reputation-backed credit market (a Lender lends USDC to workers)
+      "deposits": "200.00",         // total lender deposits
+      "borrowed": "8.00",           // cumulative principal lent
+      "interestEarned": "0.20",     // lender yield
+      "defaults": 0,
+      "liquidity": "196.20",        // USDC available to lend now
+      "loans": 2,                   // loans originated
+      "repaid": 1
+    },
     "pending": 2,                   // jobs currently in flight
     "agents": 11,
     "leaderboard": [                // sorted by score desc
@@ -213,6 +224,7 @@ Every live event has a `kind`. You decide how each reads, but here's their meani
 | `stream_settled` | A producer's metered feed batch settled | positive (subtle) | `{ amount }` |
 | `x402_sale` | A consumer bought a one-off data point over the x402 boundary | positive (subtle) | `{ amount }` |
 | `priced_out` | A job didn't clear — the best quote exceeded the consumer's willingness-to-pay | neutral / info | `{ kind, quote }` |
+| `credit` | A worker borrowed or repaid working capital in the reputation-backed credit market | positive (subtle) | `{ agent }` |
 | `firewall_block` | A spend was blocked (incl. **hijack** attempts) | alert / protective | `{ agent, reason }` |
 | `tick` | Internal heartbeat (you can ignore these) | — | snapshot-ish |
 

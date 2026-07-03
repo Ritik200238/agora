@@ -15,4 +15,5 @@ export const ABIS = {
   ValidationRegistry: abi("ValidationRegistry"),
   ReputationBond: abi("ReputationBond"),
   JobBoard: abi("JobBoard"),
+  LendingPool: abi("LendingPool"),
 } as const;

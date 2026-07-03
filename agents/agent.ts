@@ -2,7 +2,7 @@ import { walletFor, type Wallet } from "../shared/chain";
 import { HARDHAT_KEYS } from "../shared/local-accounts";
 import { SpendFirewall } from "./treasury";
 
-export type Role = "consumer" | "worker" | "broker" | "validator" | "producer";
+export type Role = "consumer" | "worker" | "broker" | "validator" | "producer" | "lender";
 
 export interface AgentConfig {
   name: string;

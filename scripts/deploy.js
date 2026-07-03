@@ -45,10 +45,14 @@ async function deployAll() {
     treasury
   );
 
-  // Authority: only the JobBoard may report reputation, lock/slash bonds, and write validations.
+  const lendingPool = await dep("LendingPool", usdcAddr, identity.target, reputation.target, bond.target);
+
+  // Authority: the JobBoard + LendingPool may report reputation + lock/slash bonds; JobBoard writes validations.
   await (await reputation.setReporter(jobBoard.target, true)).wait();
   await (await bond.setManager(jobBoard.target, true)).wait();
   await (await validation.initialize(jobBoard.target)).wait();
+  await (await reputation.setReporter(lendingPool.target, true)).wait();
+  await (await bond.setManager(lendingPool.target, true)).wait();
 
   // Lock it down: renounce ownership so NO key (incl. the deployer) can add a rogue reporter/manager
   // and forge reputation or drain bonds. Authority is now immutable.
@@ -66,6 +70,7 @@ async function deployAll() {
     validation: validation.target,
     bond: bond.target,
     jobBoard: jobBoard.target,
+    lendingPool: lendingPool.target,
     deployer: deployer.address,
   };
 
