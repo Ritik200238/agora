@@ -5,7 +5,7 @@ services:
     name: agora
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter # the economy runs a local EVM in-process; free/512MB may be tight — starter recommended
+    plan: free # free 512MB, sleeps after ~15 min idle (wakes on visit). If the in-process EVM OOMs, bump to starter.
     healthCheckPath: /api/info
     envVars:
       - key: TICK_MS
