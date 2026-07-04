@@ -17,6 +17,7 @@ import { generatePrivateKey } from "viem/accounts";
 import { publicClient, walletFor, activeChain, type Wallet } from "../shared/chain";
 import { dep, SETTLEMENT_MODE } from "../shared/config";
 import { usd, fmtUsd, usdcMint, usdcTransfer } from "../shared/usdc";
+import * as A from "../shared/contracts";
 import type { Economy } from "../orchestrator/economy";
 import type { Society } from "../agents/society";
 
@@ -68,6 +69,13 @@ function makeServices(): Record<string, Service> {
       run: (input) => fetchPrice(input?.asset),
     },
     {
+      id: "trust",
+      price: usd(0.001), // $0.001 to check an agent before you risk money dealing with it
+      desc: "Agent Reputation / Trust Oracle — on-chain trust profile + verdict BEFORE you deal. input: { agent }.",
+      example: { agent: "Maxer-1" },
+      run: (input, eco) => trustProfile(input?.agent, eco),
+    },
+    {
       id: "hash",
       price: usd(0.0001), // $0.0001
       desc: "Keccak-256 of your input string.",
@@ -108,6 +116,77 @@ function makeServices(): Record<string, Service> {
     },
   ];
   return Object.fromEntries(list.map((s) => [s.id, s]));
+}
+
+// --- Agent Reputation / Trust Oracle — the on-chain trust profile of an agent BEFORE you deal with it.
+//     This is the thing only WE have: a live ERC-8004 reputation + slashable-bond + credit graph.
+//     "Should I trust agent X?" answered from real on-chain signals, with a verdict. ---
+async function trustProfile(ref: unknown, eco: Economy) {
+  const society = eco.society;
+  const s = String(ref ?? "").trim();
+  if (!s) throw new Error("trust requires input.agent (a name, agentId, or 0x address)");
+  let agentId = 0n;
+  let address: `0x${string}` | undefined;
+  let name: string | undefined;
+  const byName = society.byName(s);
+  if (byName) {
+    agentId = byName.agentId; address = byName.address; name = byName.name;
+  } else if (/^0x[0-9a-fA-F]{40}$/.test(s)) {
+    address = s as `0x${string}`;
+    agentId = await A.agentOf(address);
+    name = society.agents.find((a) => a.address.toLowerCase() === s.toLowerCase())?.name;
+  } else if (/^\d+$/.test(s)) {
+    agentId = BigInt(s);
+    const a = society.agents.find((x) => x.agentId === agentId);
+    address = a?.address; name = a?.name;
+  } else throw new Error(`could not resolve agent '${s}' (use a name, agentId, or 0x address)`);
+  if (!agentId || agentId === 0n) throw new Error(`no on-chain identity for '${s}'`);
+  if (!address) address = await A.ownerOfAgent(agentId);
+
+  const role = await A.roleOf(agentId).catch(() => "unknown");
+  const stats = await A.statsOf(agentId); // { score, jobs, completed, failed }
+  const collateralized = role === "worker" || role === "producer";
+  const [bond, avail, locked, debt, limit] = await Promise.all([
+    collateralized ? A.bondOf(address) : Promise.resolve(0n),
+    collateralized ? A.availableBond(address) : Promise.resolve(0n),
+    collateralized ? A.lockedBond(address) : Promise.resolve(0n),
+    A.debtOf(address),
+    role === "worker" ? A.creditLimit(agentId) : Promise.resolve(0n),
+  ]);
+
+  const score = Number(stats.score);
+  const completed = Number(stats.completed);
+  const failed = Number(stats.failed);
+  const bonded = Number(fmtUsd(bond));
+  // trust score (0..100) derived from REAL on-chain signals: reputation, failures, bonded collateral
+  let trust = 50 + score * 0.3 - failed * 25 + Math.min(bonded, 50) * 0.4;
+  if (score < 0) trust -= 30;
+  trust = Math.max(0, Math.min(100, Math.round(trust)));
+  const verdict = trust >= 75 ? "TRUSTED" : trust >= 40 ? "NEUTRAL" : trust >= 15 ? "RISKY" : "AVOID";
+
+  const reasons: string[] = [];
+  if (score > 0) reasons.push(`+${score} on-chain reputation`);
+  else if (score < 0) reasons.push(`NEGATIVE reputation (${score}) — previously slashed for fraud`);
+  else reasons.push("no reputation history yet");
+  if (bonded > 0) reasons.push(`$${bonded.toFixed(2)} bonded collateral (skin in the game)`);
+  reasons.push(`${completed} job(s) completed, ${failed} failed`);
+  if (Number(fmtUsd(locked)) > 0) reasons.push(`$${fmtUsd(locked)} locked in active jobs`);
+  if (Number(fmtUsd(debt)) > 0) reasons.push(`$${fmtUsd(debt)} outstanding credit`);
+
+  return {
+    agent: name ?? `#${agentId}`,
+    agentId: agentId.toString(),
+    address,
+    role,
+    reputation: score,
+    jobs: { completed, failed },
+    bond: collateralized ? { total: fmtUsd(bond), available: fmtUsd(avail), locked: fmtUsd(locked) } : null,
+    credit: { debt: fmtUsd(debt), limit: role === "worker" ? fmtUsd(limit) : null },
+    trustScore: trust,
+    verdict,
+    reasons,
+    recommendation: verdict === "TRUSTED" ? "safe to deal" : verdict === "AVOID" ? "do NOT deal" : "proceed with caution",
+  };
 }
 
 interface Tab {

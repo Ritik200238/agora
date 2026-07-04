@@ -145,6 +145,7 @@ let SERVICES = [];
 
 // per-service input renderers
 function inputHTML(s){
+  if (s.id === 'trust')   return `<select id="agent_${s.id}"><option>Maxer-1</option><option>Summer-1</option><option>Sorta-1</option><option>Veritu</option><option>Grift</option><option>Banca</option></select>`;
   if (s.id === 'price')   return `<select id="asset_${s.id}"><option>bitcoin</option><option>ethereum</option><option>solana</option><option>usd-coin</option><option>dogecoin</option><option>chainlink</option></select>`;
   if (s.id === 'hash')    return `<input id="in_${s.id}" placeholder="data to hash" value="hello arc" />`;
   if (s.id === 'stats')   return `<input id="in_${s.id}" placeholder="text to analyze" value="Pay per call. No subscription." />`;
@@ -153,6 +154,7 @@ function inputHTML(s){
   return `<span class="lab" style="align-self:center">no input needed</span>`;
 }
 function buildInput(s){
+  if (s.id === 'trust')   return { agent: $('agent_trust').value };
   if (s.id === 'price')   return { asset: $('asset_price').value };
   if (s.id === 'hash')    return { data: $('in_hash').value };
   if (s.id === 'stats')   return { text: $('in_stats').value };
