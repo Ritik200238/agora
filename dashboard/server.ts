@@ -8,6 +8,7 @@ import { startChain } from "../test/harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "./gateway";
+import { rateLimit } from "./ratelimit";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? +process.env.PORT : 4000;
@@ -22,6 +23,7 @@ async function main() {
 
   const app = express();
   app.use(express.json());
+  app.use(rateLimit(300)); // global abuse/DoS guard: 300 req/min/IP
   app.use(express.static(join(__dirname, "public")));
   app.get("/pay", (_req, res) => res.sendFile(join(__dirname, "public", "pay.html")));
 
@@ -57,11 +59,11 @@ async function main() {
     if (!d) return res.status(404).json({ error: "unknown agent" });
     res.json(d);
   });
-  app.post("/api/inject-fraud", async (_req, res) => {
+  app.post("/api/inject-fraud", rateLimit(30), async (_req, res) => {
     await eco.injectFraud();
     res.json({ ok: true });
   });
-  app.post("/api/hijack", (_req, res) => res.json(eco.hijackAttempt("Nova-1")));
+  app.post("/api/hijack", rateLimit(30), (_req, res) => res.json(eco.hijackAttempt("Nova-1")));
 
   // the PUBLIC pay-per-use gateway — real external agents/users pay tiny USDC per call (→ externalVolume)
   mountGateway(app, eco, society);

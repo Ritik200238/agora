@@ -23,7 +23,7 @@ activity — no humans, no ad spend, free funds.
 | --- | --- | --- |
 | **Agentic (30%)** | Agents autonomously quote, route, deliver, re-execute/validate, pay, rate, borrow/repay, and get frozen out if fraudulent — full autonomy, no per-action human. | Fraud + hijack beats are injected on cue for the demo; skills are assigned. |
 | **Traction (30%)** | A 24/7 economy of real on-chain USDC transactions (`txPerMin`, GDP) with zero spend. | 100% self-generated — labeled `internalVolume`; `externalVolume`=0 (x402 boundary open for payins). No external-traction claim. |
-| **Circle use (20%)** | *Runs:* USDC, ERC-8004 (identity/reputation/validation), ERC-8183 escrow, reputation bonds, credit market, FlowMeter, live x402. | Circle **Gateway/Nanopayments** is wired + SDK-correct but runs only on Arc with funded keys (not in CI). |
+| **Circle use (20%)** | *Runs:* USDC, ERC-8004 (identity/reputation/validation), ERC-8183 escrow, reputation bonds, credit market, FlowMeter, live x402, **and a real Circle Gateway/Nanopayments gasless nanopayment on Arc** (`npm run gateway:arc`). | The full 12-agent economy still runs on the local EVM (not on Arc). |
 | **Innovation (20%)** | Emergent **price discovery**, a **reputation-backed credit market**, enforced reputation-as-collateral, on-chain-derived verdicts, proof-of-flow metering. | Emergent dynamics are pricing/credit/trust/routing — not emergent *specialization*. |
 
 ## What's verified (actually run — see CI)
@@ -38,8 +38,10 @@ activity — no humans, no ad spend, free funds.
 
 - **Runs + tested locally / in CI:** the entire economy on a local EVM — real contracts, escrow, slashing,
   price discovery, credit market, FlowMeter, x402 (real on-chain USDC transfers).
-- **Wired, SDK-correct, unexecuted here:** Circle **Gateway/Nanopayments** on **Arc Testnet** (needs a
-  faucet-funded key) + a full multi-agent Arc deployment. Same code, different network.
+- **✅ Circle Gateway / Nanopayments — RUN on Arc:** a real **gasless, batched** nanopayment settled through
+  Circle's Gateway facilitator on Arc (seller behind `createGatewayMiddleware.require('$0.01')`, buyer
+  `deposit()` → gasless `pay()`). Reproduce: `npm run gateway:arc`.
+- **Still local-only:** the full 12-agent economy runs on the local EVM (running *all* agents on Arc needs each funded).
 - **✅ Deployed + settled on real Arc Testnet (chain 5042002):** all 6 contracts are live on Arc against the
   real USDC (`0x3600…0000`) — JobBoard `0x3b3AC51e…`, Identity `0x23D910cE…`, Reputation `0x0e75f03C…`,
   Validation `0x5409b3Bb…`, Bond `0x3EaFDc33…`, LendingPool `0x390A9A87…`. Real **tiny-USDC pay-per-use**
