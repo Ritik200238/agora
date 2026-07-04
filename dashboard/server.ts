@@ -23,6 +23,7 @@ async function main() {
   const app = express();
   app.use(express.json());
   app.use(express.static(join(__dirname, "public")));
+  app.get("/pay", (_req, res) => res.sendFile(join(__dirname, "public", "pay.html")));
 
   const sseClients: Response[] = [];
   app.get("/api/events", (req, res) => {

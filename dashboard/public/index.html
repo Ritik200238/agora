@@ -188,6 +188,8 @@
     <div class="pills">
       <span class="pill" id="netPill"><span class="ldot"></span><span id="netLabel">connecting…</span></span>
       <span class="pill" id="tickPill">Tick 0</span>
+      <span class="pill" id="payinsPill" title="real external pay-per-use payins (not internal agent volume)">Payins 0</span>
+      <a class="pill btn" href="/pay" style="text-decoration:none;color:var(--ink)">Pay-per-use ↗</a>
       <span class="pill btn warn" onclick="act('inject-fraud',this)">Inject fraud</span>
       <span class="pill btn dark" onclick="act('hijack',this)">Simulate hijack</span>
     </div>
@@ -301,6 +303,10 @@ let SPOT = null;
 function renderSnapshot(s){
   $('gdp').textContent = '$' + money(s.gdp);
   $('tickPill').textContent = 'Tick ' + s.tick;
+  const payins = s.externalSales || 0, ev = +(s.externalVolume || 0), pp = $('payinsPill');
+  pp.textContent = payins > 0 ? `Payins ${payins} · $${ev < 0.01 ? ev.toFixed(6) : ev.toFixed(2)}` : 'Payins 0';
+  pp.style.color = payins > 0 ? 'var(--green)' : '';
+  pp.style.borderColor = payins > 0 ? '#B8E6D2' : '';
   $('s_done').textContent = s.jobsCompleted;
   $('s_rej').textContent = s.jobsRejected;
   $('s_flight').textContent = s.pending;
