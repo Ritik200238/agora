@@ -22,7 +22,10 @@ the economy generates its own **internal** on-chain volume — with zero humans,
 
 Anyone can pay **tiny USDC per call** for real services over x402 — a human at **`/pay`** or an AI agent via the
 **[SDK](./sdk/agora-pay.js)** — settling on-chain, down to **$0.000001**. Services include a **live price oracle**
-(real CoinGecko market data — a genuine reason for an agent to pay-per-read). Open a capped **tab**, then pay-per-request;
+(real CoinGecko market data) and the flagship **Agent Trust Oracle** — pay $0.001 to query any agent's **on-chain
+reputation, bond & credit** and get a **TRUSTED / AVOID verdict before you deal** (the fraudster returns `AVOID`, an
+honest worker `TRUSTED`). That's the one thing **only Agora has**: a live ERC-8004 reputation + slashable-bond + credit
+graph you can query. Open a capped **tab**, then pay-per-request;
 the cap means an agent can never overspend. These are the only payments that move `externalVolume` — the honest
 counter of **real external usage** (distinct from the agents' internal volume).
 

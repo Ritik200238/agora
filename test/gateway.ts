@@ -82,6 +82,16 @@ async function main() {
       console.log("  ⚠️  price oracle network error — skipped (external API), not failing CI");
     }
 
+    // 6c. Agent Reputation / Trust Oracle — the thing only WE own. Use it as intended: check BEFORE you deal.
+    for (let i = 0; i < 3; i++) { await eco.injectFraud(); await eco.tick(); } // give the fraudster an on-chain slash
+    const snapT = await eco.snapshot();
+    const good = snapT.leaderboard.find((a: any) => a.role === "worker" && a.score > 0)?.name || "Maxer-1";
+    const gT = await post(`/x402/tab/${tabId}/call`, { service: "trust", input: { agent: good } });
+    check("trust oracle: honest worker → TRUSTED/NEUTRAL (positive on-chain reputation)", gT.status === 200 && gT.body.result?.reputation > 0 && ["TRUSTED", "NEUTRAL"].includes(gT.body.result?.verdict), `${good}: ${gT.body.result?.verdict}, trust ${gT.body.result?.trustScore}`);
+    const fT = await post(`/x402/tab/${tabId}/call`, { service: "trust", input: { agent: "Grift" } });
+    check("trust oracle: fraudster → RISKY/AVOID (negative reputation, flagged)", fT.status === 200 && fT.body.result?.reputation < 0 && ["RISKY", "AVOID"].includes(fT.body.result?.verdict), `Grift: ${fT.body.result?.verdict}, rep ${fT.body.result?.reputation}`);
+    check("trust oracle DISTINGUISHES trusted from fraud (the core value)", (gT.body.result?.trustScore ?? 0) > (fT.body.result?.trustScore ?? 100), `${gT.body.result?.trustScore} vs ${fT.body.result?.trustScore}`);
+
     // 7. cap enforcement — an agent can never overspend its tab
     const small = await post("/x402/tab", { capUsdc: 0.001 });
     const okCall = await post(`/x402/tab/${small.body.tabId}/call`, { service: "compute", input: { op: "sum", nums: [1] } }); // == cap

@@ -11,7 +11,7 @@ Status: ✅ built + tested · 🟡 partial / wired-not-live · ⬜ deliberately 
 | 3 | **x402 pay-per-call (`payAndFetch`)** — Dexter, PayAI, Skyfire, Crossmint | ✅ | `rail/x402.ts` + public gateway `GET→402→pay→POST proof` + `sdk/agora-pay.js` |
 | 4 | **Sub-cent / nanopayments ($0.000001)** — the whole theme | ✅ | gateway `feed` service priced at **$0.000001**; sub-cent hash/stats/compute; tested in `test/gateway.ts` |
 | 5 | **Agent marketplace / hire-per-task** — PayAI | ✅ | broker collects quotes + routes each job to the best-value worker (`orchestrator/economy.ts`) + gateway services |
-| 6 | **Agent identity / KYA / credentials** — Skyfire, Visa, Crossmint | ✅ / 🟡 | ERC-8004 identity ✅; signed verifiable *claims* on top of it 🟡 |
+| 6 | **Agent identity / KYA / credentials + TRUST ORACLE** — Skyfire, Visa, Crossmint (+ **our moat**) | ✅ | ERC-8004 identity + a live **pay-per-use Agent Trust Oracle** (`/x402` `trust`): query any agent's on-chain reputation/bond/credit → **TRUSTED / AVOID** verdict before you deal. Only Agora has this graph — fraudster → `AVOID`, honest worker → `TRUSTED`. |
 | 7 | **Metering / per-call billing / ledger** — Nevermined | ✅ | FlowMeter proof-of-flow receipts + per-tab line-item bill + on-chain event log |
 | 8 | **Streaming / pay-per-second** — Skyfire, StreamPay | ✅ / 🟡 | `rail/flowmeter.ts` rate-metered streams (batched settle); explicit per-second UI 🟡 |
 | 9 | **Programmable budgets, caps, whitelists, approval** — all | ✅ / 🟡 | SpendFirewall (budget + rate caps, anomaly halt) + tab caps ✅; merchant whitelist/human-approval 🟡 |
