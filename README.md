@@ -18,6 +18,24 @@ the economy generates its own **internal** on-chain volume — with zero humans,
 
 ---
 
+## 💸 Pay-per-use gateway — the real, public edge
+
+Anyone can pay **tiny USDC per call** for real services over x402 — a human at **`/pay`** or an AI agent via the
+**[SDK](./sdk/agora-pay.js)** — settling on-chain, down to **$0.000001**. Open a capped **tab**, then pay-per-request;
+the cap means an agent can never overspend. These are the only payments that move `externalVolume` — the honest
+counter of **real external usage** (distinct from the agents' internal volume).
+
+```bash
+URL=https://agora-j52a.onrender.com
+curl -s -XPOST $URL/x402/tab -H content-type:application/json -d '{"capUsdc":0.1}'          # -> { tabId, ... }
+curl -s -XPOST $URL/x402/tab/<tabId>/call -H content-type:application/json \
+     -d '{"service":"compute","input":{"op":"sum","nums":[3,1,4]}}'                          # pay $0.001 -> { result: 8 }
+```
+
+Try it in the browser: **[/pay](https://agora-j52a.onrender.com/pay)** · feature map: [`docs/pmf-features.md`](./docs/pmf-features.md).
+
+---
+
 ## What it does (in one screen)
 
 Each tick, the economy runs itself:
@@ -70,6 +88,7 @@ flowchart TB
 | **Reputation-backed credit** | `contracts/LendingPool.sol` — lenders deposit USDC; workers borrow against on-chain reputation |
 | **Price discovery** | `orchestrator/economy.ts` — competitive worker quotes + demand elasticity (dynamic prices) |
 | **x402 service boundary** | `rail/x402.ts` — challenge-bound pay-to-use; LIVE in the economy (`x402Buy`), settled locally by a real on-chain USDC transfer |
+| **Public pay-per-use gateway** | `dashboard/gateway.ts` — external agents/humans pay tiny USDC per call (down to **$0.000001**) over x402; capped tabs + `sdk/agora-pay.js`; the only thing that moves real `externalVolume` |
 | **Circle Gateway / Nanopayments** | `rail/x402.ts` `arcGatewayPay()` / `arcGatewayMiddleware()` — the Arc settlement branch selected by `SETTLEMENT=arc`. SDK-correct + wired, but **runs only on Arc with funded keys (not exercised in CI)** |
 | **Treasury / spend policy** | `agents/treasury.ts` — fail-closed budgets + rate caps |
 
