@@ -21,7 +21,8 @@ the economy generates its own **internal** on-chain volume — with zero humans,
 ## 💸 Pay-per-use gateway — the real, public edge
 
 Anyone can pay **tiny USDC per call** for real services over x402 — a human at **`/pay`** or an AI agent via the
-**[SDK](./sdk/agora-pay.js)** — settling on-chain, down to **$0.000001**. Open a capped **tab**, then pay-per-request;
+**[SDK](./sdk/agora-pay.js)** — settling on-chain, down to **$0.000001**. Services include a **live price oracle**
+(real CoinGecko market data — a genuine reason for an agent to pay-per-read). Open a capped **tab**, then pay-per-request;
 the cap means an agent can never overspend. These are the only payments that move `externalVolume` — the honest
 counter of **real external usage** (distinct from the agents' internal volume).
 
@@ -29,7 +30,7 @@ counter of **real external usage** (distinct from the agents' internal volume).
 URL=https://agora-j52a.onrender.com
 curl -s -XPOST $URL/x402/tab -H content-type:application/json -d '{"capUsdc":0.1}'          # -> { tabId, ... }
 curl -s -XPOST $URL/x402/tab/<tabId>/call -H content-type:application/json \
-     -d '{"service":"compute","input":{"op":"sum","nums":[3,1,4]}}'                          # pay $0.001 -> { result: 8 }
+     -d '{"service":"price","input":{"asset":"bitcoin"}}'                                     # pay $0.0001 -> LIVE BTC price
 ```
 
 Try it in the browser: **[/pay](https://agora-j52a.onrender.com/pay)** · feature map: [`docs/pmf-features.md`](./docs/pmf-features.md).

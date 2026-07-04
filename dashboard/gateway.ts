@@ -22,6 +22,26 @@ import type { Society } from "../agents/society";
 
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
 
+// --- REAL data oracle: live crypto prices from CoinGecko (free, no key). Cached to respect rate limits.
+//     If the real source is unavailable it THROWS — the caller is never charged and never served fake data. ---
+const PRICE_TTL_MS = 30_000;
+const PRICE_ASSETS = ["bitcoin", "ethereum", "solana", "usd-coin", "tether", "dogecoin", "arbitrum", "chainlink"];
+const priceCache = new Map<string, { usd: number; at: number }>();
+async function fetchPrice(assetIn: unknown) {
+  const asset = String(assetIn || "bitcoin").toLowerCase().trim();
+  if (!PRICE_ASSETS.includes(asset)) throw new Error(`unknown asset '${asset}' — try: ${PRICE_ASSETS.join(", ")}`);
+  const now = Date.now();
+  const c = priceCache.get(asset);
+  if (c && now - c.at < PRICE_TTL_MS) return { asset, usd: c.usd, source: "coingecko", cached: true, asOf: new Date(c.at).toISOString() };
+  const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(asset)}&vs_currencies=usd`, { headers: { accept: "application/json" } });
+  if (!res.ok) throw new Error(`price source unavailable (HTTP ${res.status})`);
+  const j: any = await res.json();
+  const usd = j?.[asset]?.usd;
+  if (typeof usd !== "number") throw new Error(`no live price for '${asset}'`);
+  priceCache.set(asset, { usd, at: now });
+  return { asset, usd, source: "coingecko", cached: false, asOf: new Date(now).toISOString() };
+}
+
 // ---- the real, useful services the gateway sells (pay-per-call, rule-based, no API keys) ----
 interface Service {
   id: string;
@@ -39,6 +59,13 @@ function makeServices(): Record<string, Service> {
       desc: "One live reading from the economy's data feed (its current on-chain GDP).",
       example: {},
       run: (_input, eco) => ({ metric: "gdp_usdc", value: eco.lastGdp, tick: eco.tickN }),
+    },
+    {
+      id: "price",
+      price: usd(0.0001), // $0.0001 per real price read — a genuine reason to pay
+      desc: "Live USD price of a crypto asset — REAL market data (CoinGecko). input: { asset }.",
+      example: { asset: "bitcoin" },
+      run: (input) => fetchPrice(input?.asset),
     },
     {
       id: "hash",
@@ -161,7 +188,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
 
     let result: any;
     try {
-      result = svc.run(req.body?.input, eco); // compute BEFORE charging, so a bad input isn't billed
+      result = await svc.run(req.body?.input, eco); // compute BEFORE charging, so a bad input isn't billed
     } catch (e) {
       return res.status(400).json({ error: String((e as Error)?.message ?? e) });
     }
@@ -232,7 +259,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
 
     let result: any;
     try {
-      result = svc.run(req.body?.input, eco);
+      result = await svc.run(req.body?.input, eco);
     } catch (e) {
       return res.status(400).json({ error: String((e as Error)?.message ?? e) });
     }
