@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { startChain } from "../test/harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
+import { mountGateway } from "./gateway";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? +process.env.PORT : 4000;
@@ -60,6 +61,9 @@ async function main() {
     res.json({ ok: true });
   });
   app.post("/api/hijack", (_req, res) => res.json(eco.hijackAttempt("Nova-1")));
+
+  // the PUBLIC pay-per-use gateway — real external agents/users pay tiny USDC per call (→ externalVolume)
+  mountGateway(app, eco, society);
 
   await new Promise<void>((resolve) => app.listen(PORT, resolve));
   console.log(`\n🏛️  Agora dashboard live → http://localhost:${PORT}\n`);

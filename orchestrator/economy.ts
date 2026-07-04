@@ -83,6 +83,8 @@ export class Economy {
   x402Sales = 0;
   x402Volume = 0n;
   externalVolume = 0n;
+  externalSales = 0; // count of REAL external (non-agent) pay-per-use calls over the public x402 gateway
+  lastGdp = "0"; // cached GDP for the metered data-feed service (refreshed each snapshot)
   // price discovery
   marketRates = new Map<string, bigint>(); // EMA of winning price per skill
   priceHistory: { t: number; skill: string; price: string; cleared: boolean }[] = [];
@@ -457,10 +459,25 @@ export class Economy {
     return res;
   }
 
+  /** Record a REAL external (non-agent) pay-per-use purchase made over the public x402 gateway.
+   *  This is the ONLY thing that moves `externalVolume` — the honest counter of real usage. */
+  recordExternalSale(amount: bigint, service: string, buyer: string) {
+    this.externalVolume += amount;
+    this.externalSales += 1;
+    this.x402Sales += 1;
+    this.x402Volume += amount;
+    this.log("x402_sale", `${buyer} paid $${fmtUsd(amount)} for ${service} over x402 — REAL external payin`, {
+      amount: amount.toString(),
+      external: true,
+      service,
+    });
+  }
+
   // ---- metrics ----
 
   async snapshot() {
     const econ = await A.economy();
+    this.lastGdp = fmtUsd(econ.totalSettled);
     const credit = await A.creditMarket();
     const now = Date.now();
     this.txTimestamps = this.txTimestamps.filter((t) => t > now - 60000);
@@ -501,6 +518,7 @@ export class Economy {
       // non-agent wallets paying in over x402 (0 in the closed demo, but the path + field are real).
       internalVolume: fmtUsd(econ.totalSettled),
       externalVolume: fmtUsd(this.externalVolume),
+      externalSales: this.externalSales,
       settlementMode: SETTLEMENT_MODE,
       jobsCompleted: Number(econ.jobsCompleted),
       jobsRejected: Number(econ.jobsRejected),
