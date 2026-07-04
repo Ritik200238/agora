@@ -72,6 +72,16 @@ async function main() {
     // 6. REAL external volume recorded on the economy (distinct from internal wash)
     check("real external volume recorded", eco.externalVolume > 0n && eco.externalSales === 2, `externalVolume $${fmtUsd(eco.externalVolume)}, sales ${eco.externalSales}`);
 
+    // 6b. REAL data oracle — live market data (best-effort: the external API may rate-limit in CI)
+    try {
+      const p = await post(`/x402/tab/${tabId}/call`, { service: "price", input: { asset: "bitcoin" } });
+      if (p.status === 200 && typeof p.body.result?.usd === "number" && p.body.result.usd > 0)
+        check("real price oracle returns LIVE market data", true, `BTC $${p.body.result.usd} via ${p.body.result.source}`);
+      else console.log(`  ⚠️  price oracle unavailable (HTTP ${p.status}) — skipped (external API), not failing CI`);
+    } catch {
+      console.log("  ⚠️  price oracle network error — skipped (external API), not failing CI");
+    }
+
     // 7. cap enforcement — an agent can never overspend its tab
     const small = await post("/x402/tab", { capUsdc: 0.001 });
     const okCall = await post(`/x402/tab/${small.body.tabId}/call`, { service: "compute", input: { op: "sum", nums: [1] } }); // == cap
