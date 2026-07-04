@@ -18,6 +18,7 @@ import { publicClient, walletFor, activeChain, type Wallet } from "../shared/cha
 import { dep, SETTLEMENT_MODE } from "../shared/config";
 import { usd, fmtUsd, usdcMint, usdcTransfer } from "../shared/usdc";
 import * as A from "../shared/contracts";
+import { rateLimit } from "./ratelimit";
 import type { Economy } from "../orchestrator/economy";
 import type { Society } from "../agents/society";
 
@@ -229,7 +230,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   );
 
   // --- Tabs: open a capped, pre-funded spending channel (demo credit on the local chain) ---
-  r.post("/tab", async (req, res) => {
+  r.post("/tab", rateLimit(15), async (req, res) => {
     if (!canMintDemo)
       return res.status(400).json({ error: "demo tabs run only on the local chain; on Arc, fund your own wallet at https://faucet.circle.com and use the raw x402 flow" });
     const capUsdc = req.body?.capUsdc != null ? Number(req.body.capUsdc) : 0.1;

@@ -14,6 +14,7 @@
     "deploy:arc": "hardhat run scripts/deploy.js --network arcTestnet",
     "arc:status": "tsx scripts/arc-status.ts",
     "arc:demo": "tsx scripts/arc-demo.ts",
+    "gateway:arc": "tsx scripts/circle-gateway-arc.ts",
     "economy": "tsx orchestrator/run.ts",
     "dashboard": "tsx dashboard/server.ts",
     "demo": "tsx scripts/demo.ts",
@@ -34,6 +35,8 @@
   "dependencies": {
     "@circle-fin/x402-batching": "^3.0.4",
     "@openzeppelin/contracts": "^5.1.0",
+    "@x402/core": "^2.17.0",
+    "@x402/evm": "^2.17.0",
     "dotenv": "^16.4.5",
     "express": "^5.0.1",
     "viem": "^2.21.45"

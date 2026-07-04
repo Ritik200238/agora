@@ -99,7 +99,7 @@ flowchart TB
 | **Price discovery** | `orchestrator/economy.ts` — competitive worker quotes + demand elasticity (dynamic prices) |
 | **x402 service boundary** | `rail/x402.ts` — challenge-bound pay-to-use; LIVE in the economy (`x402Buy`), settled locally by a real on-chain USDC transfer |
 | **Public pay-per-use gateway** | `dashboard/gateway.ts` — external agents/humans pay tiny USDC per call (down to **$0.000001**) over x402; capped tabs + `sdk/agora-pay.js`; the only thing that moves real `externalVolume` |
-| **Circle Gateway / Nanopayments** | `rail/x402.ts` `arcGatewayPay()` / `arcGatewayMiddleware()` — the Arc settlement branch selected by `SETTLEMENT=arc`. SDK-correct + wired, but **runs only on Arc with funded keys (not exercised in CI)** |
+| **Circle Gateway / Nanopayments** | `rail/x402.ts` `arcGatewayPay()` / `arcGatewayMiddleware()` — **RUN on Arc**: a real **gasless, batched** nanopayment settled via Circle's facilitator (`npm run gateway:arc`) |
 | **Treasury / spend policy** | `agents/treasury.ts` — fail-closed budgets + rate caps |
 
 ---

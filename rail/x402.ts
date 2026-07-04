@@ -142,21 +142,23 @@ export function x402Router(services: Record<string, ReturnType<typeof x402Servic
 // ---------------------------------------------------------------------------
 
 /** Pay an x402 endpoint URL on Arc via Circle Gateway. Requires SETTLEMENT=arc + PRIVATE_KEY. */
-export async function arcGatewayPay(url: string): Promise<{ status: number; data: any }> {
+export async function arcGatewayPay(url: string, depositUsd?: string): Promise<{ status: number; data: any }> {
   if (SETTLEMENT_MODE !== "arc") throw new Error("arcGatewayPay requires SETTLEMENT=arc");
   const pk = process.env.PRIVATE_KEY as `0x${string}` | undefined;
   if (!pk) throw new Error("arcGatewayPay requires PRIVATE_KEY (faucet-funded Arc Testnet key)");
   const { GatewayClient } = await import("@circle-fin/x402-batching/client");
-  const client = new GatewayClient({ chain: "arcTestnet", privateKey: pk });
+  const client = new GatewayClient({ chain: "arcTestnet", privateKey: pk, rpcUrl: process.env.ARC_TESTNET_RPC });
+  if (depositUsd) await client.deposit(depositUsd); // one-time: fund the Gateway balance, then pay() is gasless
   return client.pay(url);
 }
 
 /** Build Circle's Gateway middleware so a producer can paywall an Express route on Arc. */
-export async function arcGatewayMiddleware(sellerAddress: `0x${string}`) {
+export async function arcGatewayMiddleware(sellerAddress: `0x${string}`, price: string = "$0.01") {
   const { createGatewayMiddleware } = await import("@circle-fin/x402-batching/server");
-  return createGatewayMiddleware({
+  const gateway = createGatewayMiddleware({
     sellerAddress,
     facilitatorUrl: process.env.GATEWAY_API || "https://gateway-api-testnet.circle.com",
     networks: ["eip155:5042002"],
   });
+  return gateway.require(price); // the actual Express middleware — charges `price` USDC/call via Circle Gateway
 }
