@@ -16,7 +16,9 @@ The Lepton hackathon (Canteen × Circle × Arc), in three lines, wants:
 
 **Alignment bar for every decision:** does it push toward *tiny* payments, *pay-per-use*, and *real users on real Arc*?
 The failure mode to avoid: a beautiful **closed simulation** with 0 real users, dollar-scale payments, on a local EVM.
-As of 2026-07-03 the live app is exactly that (externalVolume=$0, settlement=local, ~$1 jobs) — closing this gap is the priority.
+Progress (2026-07-04): the core gap is largely closed — a **public pay-per-use gateway** (real `externalVolume`),
+sub-cent pricing (**$0.000001**), and real **tiny-USDC pay-per-use settled on real Arc Testnet** (chain 5042002,
+verifiable on Arcscan). Remaining: drive real external *users* + optionally run the full economy on Arc.
 
 ---
 
