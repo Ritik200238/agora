@@ -12,6 +12,7 @@ activity — no humans, no ad spend, free funds.
 
 - **Product spec:** [`tdd.md`](./tdd.md) · **How it works + honesty notes:** [`README.md`](./README.md)
 - **Live dashboard:** [agora-j52a.onrender.com](https://agora-j52a.onrender.com) · **Landing:** [agora-arc.vercel.app](https://agora-arc.vercel.app) · **Repo:** [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora)
+- **✅ On real Arc Testnet (chain 5042002):** contracts deployed + tiny-USDC pay-per-use **settled on-chain** — [$0.000001 nanopayment](https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839) · [$0.001](https://testnet.arcscan.app/tx/0x74073eee40d40e9b5fc99425e1199715305e1f1a831917df79af2574c2d3cd8f) · [$0.0005](https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce)
 - **Run it:** `npm install && npm test` then `npm run dashboard` → http://localhost:4000
 - **Deploy a live link:** [`DEPLOY.md`](./DEPLOY.md) (Render/Railway/Fly via the `Dockerfile`)
 - **Observed dynamics:** [`docs/research-note.md`](./docs/research-note.md)
@@ -39,9 +40,11 @@ activity — no humans, no ad spend, free funds.
   price discovery, credit market, FlowMeter, x402 (real on-chain USDC transfers).
 - **Wired, SDK-correct, unexecuted here:** Circle **Gateway/Nanopayments** on **Arc Testnet** (needs a
   faucet-funded key) + a full multi-agent Arc deployment. Same code, different network.
-- **Arc connectivity verified:** the runtime talks to **real Arc Testnet** over the Canteen-hosted RPC —
-  `eth_chainId` returns **5042002** and it reads live blocks. Deploying the contracts + settling via Gateway
-  on Arc still needs a faucet-funded key (the one honest blocker).
+- **✅ Deployed + settled on real Arc Testnet (chain 5042002):** all 6 contracts are live on Arc against the
+  real USDC (`0x3600…0000`) — JobBoard `0x3b3AC51e…`, Identity `0x23D910cE…`, Reputation `0x0e75f03C…`,
+  Validation `0x5409b3Bb…`, Bond `0x3EaFDc33…`, LendingPool `0x390A9A87…`. Real **tiny-USDC pay-per-use**
+  settled on-chain (a **$0.000001** nanopayment + $0.001 / $0.0005 calls), each verified — Arcscan links above.
+  Reproduce: `npm run deploy:arc && npm run arc:demo`.
 
 ## Submission checklist
 

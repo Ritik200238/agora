@@ -34,6 +34,12 @@ curl -s -XPOST $URL/x402/tab/<tabId>/call -H content-type:application/json \
 
 Try it in the browser: **[/pay](https://agora-j52a.onrender.com/pay)** · feature map: [`docs/pmf-features.md`](./docs/pmf-features.md).
 
+**✅ On real Arc Testnet (chain 5042002):** the contracts are **deployed to Arc** and real **tiny-USDC** pay-per-use has
+**settled on-chain** — a [$0.000001 nanopayment](https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839)
++ [$0.001](https://testnet.arcscan.app/tx/0x74073eee40d40e9b5fc99425e1199715305e1f1a831917df79af2574c2d3cd8f) /
+[$0.0005](https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce) calls, each verified.
+Reproduce with a faucet-funded key: `npm run deploy:arc && npm run arc:demo`.
+
 ---
 
 ## What it does (in one screen)
