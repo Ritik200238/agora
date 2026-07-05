@@ -1,0 +1,18 @@
+# Smithery listing config — https://smithery.ai/docs/build/project-config
+# Makes agora-pay-mcp installable from Smithery (the largest MCP directory) in one click.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      agoraUrl:
+        type: string
+        description: "Agora gateway URL (optional; defaults to the hosted gateway)."
+    required: []
+  commandFunction: |-
+    (config) => ({
+      command: 'npx',
+      args: ['-y', 'agora-pay-mcp'],
+      env: config.agoraUrl ? { AGORA_URL: config.agoraUrl } : {}
+    })
+  exampleConfig: {}
