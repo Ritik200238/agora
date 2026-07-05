@@ -1,105 +1,94 @@
 # Agora — Submission
 
-**Agora is a self-running economy of autonomous AI agents that hire, pay, rate, compete, and lend to each
-other 24/7, settling USDC on-chain.** The agents are both supply and demand, so it generates its own on-chain
-activity — no humans, no ad spend, free funds.
+**Agora is payments infrastructure for AI agents on Circle's Arc.** Any agent — or developer — can charge and
+pay **per API call in fractions of a cent**, settled instantly in USDC. A budget-capped agent wallet
+(`npx agora-pay-mcp`), a trust-checked pay-per-use marketplace, sellers who **stake USDC**, and a
+**buyer-protection insurance pool** — no subscriptions, no Stripe, no KYC, no custody.
 
-> **Hackathon north star (what judges reward), added 2026-07-03:** (1) an AI agent that sends/receives **tiny** USDC
-> payments (even **$0.000001**); (2) **pay-per-use** (per call / article / second), not subscriptions; (3) a **real app
-> on Arc that solves an actual problem and gets real users** during the hackathon. Honest status: we have the engine
-> and the rails, but the live app is still a closed simulation — 0 external users, `local` settlement, ~$1 payments.
-> Closing that gap is the top priority.
+> **Hackathon north star:** (1) an AI agent that sends/receives **tiny** USDC ($0.000001); (2) **pay-per-use**,
+> not subscriptions; (3) a **real app on Arc that gets real users.** Status: settlement is proven on real Arc
+> down to **$0.000001**; the marketplace, wallet (MCP), bonded trust, and insurance are live and tested. The
+> open frontier is driving external traffic — the payment + trust layers underneath are done.
 
-- **Product spec:** [`tdd.md`](./tdd.md) · **How it works + honesty notes:** [`README.md`](./README.md)
-- **Live dashboard:** [agora-j52a.onrender.com](https://agora-j52a.onrender.com) · **Landing:** [agora-arc.vercel.app](https://agora-arc.vercel.app) · **Repo:** [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora)
-- **✅ On real Arc Testnet (chain 5042002):** contracts deployed + tiny-USDC pay-per-use **settled on-chain** — [$0.000001 nanopayment](https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839) · [$0.001](https://testnet.arcscan.app/tx/0x74073eee40d40e9b5fc99425e1199715305e1f1a831917df79af2574c2d3cd8f) · [$0.0005](https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce)
-- **✅ Open marketplace (the delta):** any dev **lists their own service** (`POST /x402/services/register`, paid directly on-chain per call), and any **Claude/Cursor agent plugs in via one MCP line** (`agora-pay-mcp`) — budget-capped wallet + trust-checked pay-per-use. Registry + traction persist. See [`docs/masterplan.md`](./docs/masterplan.md).
+- **Live:** [pay-per-use](https://agora-j52a.onrender.com/pay) · [marketplace](https://agora-j52a.onrender.com/registry) · [economy dashboard](https://agora-j52a.onrender.com) · [landing](https://agora-arc.vercel.app) · [npm](https://www.npmjs.com/package/agora-pay-mcp) · [repo](https://github.com/Ritik200238/agora)
+- **✅ On real Arc Testnet (chain 5042002):** contracts deployed + tiny-USDC pay-per-use **settled on-chain** — [$0.000001 nanopayment](https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839) · [$0.001](https://testnet.arcscan.app/tx/0x74073eee40d40e9b5fc99425e1199715305e1f1a831917df79af2574c2d3cd8f) · [$0.0005](https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce), each verified. Circle **Gateway / Nanopayments RUN on Arc** (`npm run gateway:arc`).
 - **Run it:** `npm install && npm test` then `npm run dashboard` → http://localhost:4000
-- **Deploy a live link:** [`DEPLOY.md`](./DEPLOY.md) (Render/Railway/Fly via the `Dockerfile`)
-- **Observed dynamics:** [`docs/research-note.md`](./docs/research-note.md)
 
 ## Rubric mapping
 
 | Axis | What Agora shows | Honest caveat |
 | --- | --- | --- |
-| **Agentic (30%)** | Agents autonomously quote, route, deliver, re-execute/validate, pay, rate, borrow/repay, and get frozen out if fraudulent — full autonomy, no per-action human. | Fraud + hijack beats are injected on cue for the demo; skills are assigned. |
-| **Traction (30%)** | A 24/7 economy of real on-chain USDC transactions (`txPerMin`, GDP) with zero spend. | 100% self-generated — labeled `internalVolume`; `externalVolume`=0 (x402 boundary open for payins). No external-traction claim. |
-| **Circle use (20%)** | *Runs:* USDC, ERC-8004 (identity/reputation/validation), ERC-8183 escrow, reputation bonds, credit market, FlowMeter, live x402, **and a real Circle Gateway/Nanopayments gasless nanopayment on Arc** (`npm run gateway:arc`). | The full 12-agent economy still runs on the local EVM (not on Arc). |
-| **Innovation (20%)** | Emergent **price discovery**, a **reputation-backed credit market**, enforced reputation-as-collateral, on-chain-derived verdicts, proof-of-flow metering. | Emergent dynamics are pricing/credit/trust/routing — not emergent *specialization*. |
+| **Agentic (30%)** | `agora-pay-mcp` gives any agent a budget-capped wallet: it discovers services, checks trust before paying, decides buy-vs-skip, and pays per call — plus a 12-agent economy that routes, validates, lends, and slashes autonomously. | The economy's fraud + hijack beats are injected on cue for the demo; skills are assigned. |
+| **Traction (30%)** | A public pay-per-use marketplace anyone can list on or pay into, and a 24/7 economy of real on-chain USDC. `externalVolume` is the honest counter of real external payins. | External volume from non-team users is still early — the layer's open and live; usage is the frontier. |
+| **Circle use (20%)** | USDC everywhere · ERC-8004 identity/reputation/validation · ERC-8183 escrow · **ServiceBond** collateral · **InsurancePool** buyer protection · x402 pay-per-call · **a real Circle Gateway/Nanopayments gasless nanopayment on Arc** (`npm run gateway:arc`). | The full 12-agent economy still runs on the local EVM (running all agents on Arc needs each funded). |
+| **Innovation (20%)** | **Bonded, slashable trust + a buyer-protection insurance pool on Arc** — the least-mature lane in agent payments (Circle's stack leaves it open; Nava's $8.3M hasn't shipped it). Plus emergent price discovery + a reputation-backed credit market. | — |
 
 ## What's verified (actually run — see CI)
 
-- **22 Hardhat contract tests** — escrow lifecycle, fraud→slash of locked bond, self-deal/owner-rug guards,
-  soulbound passports, gated validation, concurrent-job accounting, and the credit market.
-- **Runtime smoke + end-to-end economy** — boots a real local chain and asserts on-chain state: GDP, fraud
-  slash + freeze-out, firewall block, producer earnings, **price discovery**, **active credit market**.
+- **32 Hardhat contract tests** — escrow lifecycle, fraud→slash of the locked bond, **marketplace bond
+  slashing** (`ServiceBond`), the **buyer-protection insurance pool** (`InsurancePool`), self-deal/owner-rug
+  guards, soulbound passports, concurrent-job accounting, and the credit market.
+- **7 end-to-end suites** against a real spawned chain — the economy (`test/e2e.ts`), pay-per-use gateway
+  (`test/gateway.ts`), multi-tenant marketplace (`test/registry.ts`), seeded bonded services (`test/seed.ts`),
+  the warranty/insurance flow (`test/warranty.ts`), the Postgres store (`test/pgstore.ts`), and the agent MCP
+  (`test/mcp.ts`). Plus on-demand: `test:services` (real weather/FX/email), `test:paywall`.
 - CI (`.github/workflows/ci.yml`) runs the whole suite on every push.
 
-## What runs vs. what's wired (read this)
+## Deployed on real Arc Testnet (chain 5042002)
 
-- **Runs + tested locally / in CI:** the entire economy on a local EVM — real contracts, escrow, slashing,
-  price discovery, credit market, FlowMeter, x402 (real on-chain USDC transfers).
-- **✅ Circle Gateway / Nanopayments — RUN on Arc:** a real **gasless, batched** nanopayment settled through
-  Circle's Gateway facilitator on Arc (seller behind `createGatewayMiddleware.require('$0.01')`, buyer
-  `deposit()` → gasless `pay()`). Reproduce: `npm run gateway:arc`.
-- **Still local-only:** the full 12-agent economy runs on the local EVM (running *all* agents on Arc needs each funded).
-- **✅ Deployed + settled on real Arc Testnet (chain 5042002):** all 6 contracts are live on Arc against the
-  real USDC (`0x3600…0000`) — JobBoard `0x3b3AC51e…`, Identity `0x23D910cE…`, Reputation `0x0e75f03C…`,
-  Validation `0x5409b3Bb…`, Bond `0x3EaFDc33…`, LendingPool `0x390A9A87…`. Real **tiny-USDC pay-per-use**
-  settled on-chain (a **$0.000001** nanopayment + $0.001 / $0.0005 calls), each verified — Arcscan links above.
-  Reproduce: `npm run deploy:arc && npm run arc:demo`.
+All 6 contracts are live on Arc against the real USDC (`0x3600…0000`) — JobBoard `0x3b3AC51e…`, Identity
+`0x23D910cE…`, Reputation `0x0e75f03C…`, Validation `0x5409b3Bb…`, Bond `0x3EaFDc33…`, LendingPool
+`0x390A9A87…`. Real **tiny-USDC pay-per-use** settled on-chain (a **$0.000001** nanopayment + $0.001 / $0.0005
+calls), each verified — Arcscan links above. Reproduce: `npm run deploy:arc && npm run arc:demo`.
 
 ## Submission checklist
 
-- [x] Public GitHub repo (economy engine + agents + ERC-8004 + escrow + credit + FlowMeter + dashboard + tests)
-- [x] README with architecture + every Circle/Arc primitive used
-- [x] Research note on the observed economic behavior (`docs/research-note.md`)
-- [x] CI proving the suite passes
-- [x] **Live site (landing)** — **https://agora-arc.vercel.app** (auto-deploys from GitHub via Vercel)
-- [x] **Live economy dashboard** — **https://agora-j52a.onrender.com** (24/7 on Render — Docker built from GitHub)
-- [ ] **Sub-3-minute demo video** — record the dashboard (GDP ticking → leaderboard → one job trace →
-      inject fraud/slash → simulate hijack/firewall → cumulative volume). Link: `________`
+- [x] Public GitHub repo — contracts, marketplace, MCP, paywall, insurance, tests
+- [x] README with the product, the moat, and every Circle/Arc primitive used
+- [x] CI proving the suite passes (32 contract tests + 7 e2e suites)
+- [x] **Live landing** — https://agora-arc.vercel.app (auto-deploys from GitHub via Vercel)
+- [x] **Live app** — https://agora-j52a.onrender.com (marketplace, pay-per-use, economy — 24/7 on Render)
+- [x] **`agora-pay-mcp` published to npm** + directory-listing kit (`mcp/DIRECTORY-LISTINGS.md`)
+- [ ] **Sub-3-minute demo video** _(recording — owner's task)_
 - [ ] Submit via the official form
 
 ## Submission form — copy-paste answers
 
-**Project name:** Agora — the self-running agent economy on Arc
+**Project name:** Agora — payments infrastructure for AI agents on Arc
 
-**One-liner:** A self-running economy of autonomous AI agents that hire, pay, rate, compete, and lend to each
-other 24/7 — settling USDC on Arc.
+**One-liner:** The money layer for AI agents: charge and pay per API call in fractions of a cent, settled in
+USDC on Arc — with bonded, slashable trust and buyer-protection insurance no one else has.
 
-**What it does:** Agora boots a society of 12 autonomous agents that are *both supply and demand*. Every tick:
-consumers post USDC-funded jobs (gated by a treasury spend-firewall); a broker collects competitive quotes and
-routes each job to the best value (price × on-chain reputation), so prices are *discovered*, not fixed; workers
-deliver re-executable results; a disinterested validator independently re-executes and the ERC-8183 escrow
-*derives the verdict on-chain*. Pass → it pays the worker, broker & validator and raises reputation. Fail → it
-refunds the client and *slashes the worker's locked USDC bond*. A lender runs a reputation-backed credit market
-(proven workers borrow working capital, repay with interest); a producer sells a metered data feed over a
-proof-of-flow rail. Emergent result: real price discovery, on-chain reputation, a fraudster that gets *frozen
-out*, and a hijacked agent that the firewall blocks — with no human in the loop.
+**What it does:** Agora lets any AI agent (via one MCP line, `npx agora-pay-mcp`) get a budget-capped USDC
+wallet and shop a trust-checked marketplace: it discovers services, checks each seller's on-chain trust
+verdict, and pays sub-cent USDC per call over x402 — down to $0.000001, settled on Arc, inside a cap it can
+never exceed. Any developer lists a service in one call and is paid directly on-chain per successful request
+(no Stripe/KYC/subscription). The moat: sellers stake USDC (`ServiceBond`); a service that returns junk isn't
+paid (schema-checked delivery), and one that keeps failing is **slashed** straight into an on-chain
+**insurance pool** that refunds wronged buyers. Underneath, a fully autonomous 12-agent economy hires, prices,
+validates, lends, and settles real USDC 24/7 — proof this is infrastructure, not a toy.
 
-**How it uses Circle / Arc:** USDC for every payment (native gas on Arc; 6-dp ERC-20 for transfers) · ERC-8004
-identity/reputation/validation (the trust layer) · ERC-8183 job escrow · reputation-as-collateral USDC bonds
-(locked + slashable) · a FlowMeter proof-of-flow streaming rail · an x402 pay-to-use boundary whose Arc branch
-settles via Circle Gateway/Nanopayments. Targets Arc Testnet (chain 5042002); RPC connectivity verified live
-against the Canteen-hosted Arc endpoint.
+**How it uses Circle / Arc:** USDC for every payment (native gas on Arc; 6-dp ERC-20 for transfers) · a real
+**Circle Gateway / Nanopayments** gasless batched nanopayment on Arc · x402 pay-per-call · ERC-8004
+identity/reputation/validation · ERC-8183 escrow · ServiceBond collateral + InsurancePool buyer protection.
+Deployed + settling real tiny-USDC on Arc Testnet (chain 5042002).
 
-**Traction (honest):** A 24/7 economy generating continuous real on-chain USDC transactions with zero humans
-and zero ad spend — live at agora-j52a.onrender.com. We report volume honestly: it is self-generated
-`internalVolume` (agents are both sides of every trade); `externalVolume` (non-agent wallets paying in over the
-open x402 boundary) is tracked separately and is currently 0. We make no external-user-traction claim.
+**Traction (honest):** A public pay-per-use marketplace anyone can list on or pay into, live at
+agora-j52a.onrender.com, plus a 24/7 economy of continuous real on-chain USDC. We report volume honestly:
+self-generated `internalVolume` (the economy) is kept separate from real `externalVolume` (external payins) —
+never conflated.
 
-**Tech stack:** Solidity 0.8.28 (OpenZeppelin v5, Cancun EVM) · Hardhat · viem · TypeScript · Express + SSE ·
-Docker. Agents are rule-based (zero API keys, zero cost) so the economy is deterministic and fully testable —
-22 contract tests + 17 end-to-end assertions + 14 runtime checks, all green in CI.
+**Tech stack:** Solidity 0.8.28 (OpenZeppelin v5, Cancun) · Hardhat · viem · TypeScript · Express + SSE ·
+Postgres (durable) · Docker. Agents are rule-based (zero API keys, zero cost) so the system is deterministic
+and fully testable — 32 contract tests + 7 e2e suites, green in CI.
 
-**Links:** Live dashboard https://agora-j52a.onrender.com · Landing https://agora-arc.vercel.app ·
-GitHub https://github.com/Ritik200238/agora · Demo video _[add after recording]_
+**Links:** App https://agora-j52a.onrender.com · Landing https://agora-arc.vercel.app ·
+npm https://www.npmjs.com/package/agora-pay-mcp · GitHub https://github.com/Ritik200238/agora · Demo video _[add after recording]_
 
 ## Demo script (≈3 min)
 
-1. **Hook (0:25):** "This isn't a payments demo. It's an economy. It's been running by itself."
-2. **Living dashboard (0:45):** GDP + tx/min ticking, reputation leaderboard, market rates moving.
-3. **One job end-to-end (0:40):** open a job trace (`/api/job/:id`) — post → route → deliver → validate → settle.
-4. **Trust under fire (0:35):** *Inject fraud* → rejected + bond slashed; *Simulate hijack* → firewall blocks it.
-5. **Scale + credit (0:35):** cumulative volume + the credit market (a worker borrowing against reputation).
+1. **Hook (0:20):** "Stripe can't charge a tenth of a cent. Agora can — and it's live on Arc." Show `/pay`.
+2. **Pay per call (0:40):** open a tab, call `price`/`weather`/`fx` — real data returned, sub-cent USDC paid on-chain per call, cap bar moving.
+3. **The marketplace + moat (0:50):** `/registry` — bonded services, the buyer-protection fund. Register a service; call a bad one → *not charged*; show a slash funding the insurance pool.
+4. **The agent (0:35):** the MCP — an agent opens a budget, trust-checks, pays — one config line.
+5. **Proof it's infra (0:35):** the live economy dashboard — GDP ticking, fraud slashed + frozen, firewall block.

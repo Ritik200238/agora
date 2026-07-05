@@ -88,7 +88,8 @@
     <h3>Have an API or tool? <span class="accent">Get paid per call.</span></h3>
     <p>List any HTTP endpoint in one call. You're paid <strong>directly on-chain</strong> to your wallet on every
       successful call — sub-cent, no Stripe, no KYC, no subscription code. Below $0.01 a call, cards literally can't do this.</p>
-    <code>curl -XPOST $AGORA/x402/services/register -H content-type:application/json -d '{
+    <code>curl -XPOST https://agora-j52a.onrender.com/x402/services/register \
+  -H content-type:application/json -d '{
   "name": "My API", "url": "https://my-server/endpoint",
   "priceUsdc": 0.002, "desc": "what it does",
   "payTo": "0xYourWallet", "exampleInput": { "text": "hi" }

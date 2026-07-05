@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Agora — pay per use</title>
+<title>Agora — pay-per-use for AI agents</title>
+<meta name="description" content="Pay tiny USDC per call for real services on Arc — down to $0.000001. Open a capped tab, then pay per request. No subscription, no account. The pay-per-use edge of Agora." />
+<meta property="og:title" content="Agora — pay-per-use for AI agents" />
+<meta property="og:description" content="Pay sub-cent USDC per call for real services on Arc. Open a capped tab, pay per request — no subscription." />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath d='M2.2 9V2.2H9M21 2.2H27.8V9M27.8 21V27.8H21M9 27.8H2.2V21' stroke='%230A0A0A' stroke-width='2.3' fill='none'/%3E%3Crect x='8.4' y='16.2' width='5.4' height='5.4' fill='%23059669'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,6 +80,12 @@
   .svc .out { margin-top:12px; font-family:var(--mono); font-size:12px; background:var(--faint); border:1px solid var(--line2); border-radius:8px; padding:10px 12px; color:var(--ink2); white-space:pre-wrap; word-break:break-word; display:none; }
   .svc .out.show { display:block; animation:fade .25s ease; }
   .svc .out.err { color:var(--rust); border-color:#E7C3AE; }
+  .svc .badges { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .tagb { font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:5px; padding:3px 6px; color:var(--label); }
+  .tagb.TRUSTED { color:var(--green); border-color:#B8E6D2; }
+  .tagb.bond { color:var(--green); border-color:#B8E6D2; background:#F0FBF6; }
+  :focus-visible { outline:2px solid var(--green); outline-offset:2px; border-radius:4px; }
+  .out .txlink { color:var(--green); }
   @keyframes fade { from{opacity:0} to{opacity:1} }
 
   /* bill */
@@ -103,12 +114,12 @@
         <div class="tag lab">Pay-per-use gateway</div>
       </div>
     </div>
-    <span style="display:flex;gap:8px"><a class="back" href="/registry">Marketplace</a><a class="back" href="/">Live economy →</a></span>
+    <span style="display:flex;gap:8px"><a class="back" href="/registry">Marketplace →</a><a class="back" href="/">Live economy →</a></span>
   </header>
 
   <div class="hero">
     <h1>Pay per call.<br><span class="accent">No subscription.</span></h1>
-    <p>Open a tab, then pay <strong>sub-cent USDC</strong> for each request — down to <strong>$0.000001</strong>. Every call is a real on-chain settlement; your tab enforces the cap, so an agent can never overspend.</p>
+    <p><strong>Open a tab</strong> — like a bar tab: pre-fund a spending cap, then pay <strong>sub-cent USDC</strong> for each call, down to <strong>$0.000001</strong>. Every call settles on-chain, and the cap is enforced so an agent can never overspend.</p>
     <div class="net lab"><span class="ldot"></span><span id="net">connecting…</span></div>
   </div>
 
@@ -119,7 +130,8 @@
         <div class="addr" id="tabAddr">no tab yet · pre-funded demo credit (test USDC)</div>
       </div>
       <div class="field">
-        <input type="number" id="capInput" value="0.10" min="0.001" max="5" step="0.01" />
+        <label for="capInput" class="lab" style="align-self:center">Cap · USDC</label>
+        <input type="number" id="capInput" value="0.10" min="0.001" max="5" step="0.01" aria-label="Spending cap in USDC" />
         <button class="btn dark" id="openBtn" onclick="openTab()">Open tab</button>
       </div>
     </div>
@@ -134,7 +146,7 @@
   <div class="sect-h"><h2>Your bill</h2><span class="lab" id="billCount">0 calls</span></div>
   <div class="bill" id="bill"><div class="empty">No calls yet — open a tab and call a service.</div></div>
 
-  <div class="foot lab">Real USDC settlement on-chain · this is the public edge of the <a href="/">self-running economy</a>. On Arc, fund a real wallet at <a href="https://faucet.circle.com" target="_blank" rel="noopener">faucet.circle.com</a>.</div>
+  <div class="foot lab">Real USDC settlement on-chain. Browse the <a href="/registry">marketplace</a> or watch the <a href="/">live economy</a>. On Arc, fund a real wallet at <a href="https://faucet.circle.com" target="_blank" rel="noopener">faucet.circle.com</a>.</div>
 </div>
 
 <script>
@@ -143,40 +155,57 @@ const money = (x) => '$' + (+x).toFixed(x < 0.01 ? 6 : 2);
 let TAB = null;      // { tabId, capUsdc }
 let SERVICES = [];
 
-// per-service input renderers
+// friendly labels for the built-in services (registered third-party services carry their own name)
+const LABELS = { feed:'Data feed', price:'Crypto price', fx:'Currency (FX)', weather:'Weather', email:'Email check', trust:'Trust oracle', hash:'Keccak-256', stats:'Text stats', compute:'Compute' };
+const svcName = (s) => LABELS[s.id] || s.name || s.id;
+const esc = (v) => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fieldId = (id,k) => 'f_' + String(id).replace(/[^a-zA-Z0-9_]/g,'') + '_' + String(k).replace(/[^a-zA-Z0-9_]/g,'');
+
+// Generic input renderer — one field per key in the service's example (works for every service, built-in or
+// third-party), pre-filled with the example value so a call works on first click.
 function inputHTML(s){
-  if (s.id === 'trust')   return `<select id="agent_${s.id}"><option>Maxer-1</option><option>Summer-1</option><option>Sorta-1</option><option>Veritu</option><option>Grift</option><option>Banca</option></select>`;
-  if (s.id === 'price')   return `<select id="asset_${s.id}"><option>bitcoin</option><option>ethereum</option><option>solana</option><option>usd-coin</option><option>dogecoin</option><option>chainlink</option></select>`;
-  if (s.id === 'hash')    return `<input id="in_${s.id}" placeholder="data to hash" value="hello arc" />`;
-  if (s.id === 'stats')   return `<input id="in_${s.id}" placeholder="text to analyze" value="Pay per call. No subscription." />`;
-  if (s.id === 'compute') return `<select id="op_${s.id}"><option>sum</option><option>sort</option><option>max</option></select>
-                                  <input id="in_${s.id}" placeholder="3,1,4,1,5" value="3,1,4,1,5" />`;
-  return `<span class="lab" style="align-self:center">no input needed</span>`;
+  const ex = s.example || {};
+  const keys = Object.keys(ex);
+  if (!keys.length) return `<span class="lab" style="align-self:center">no input needed</span>`;
+  return keys.map(k => {
+    const v = ex[k];
+    const val = (v != null && typeof v === 'object') ? JSON.stringify(v) : String(v ?? '');
+    return `<input id="${fieldId(s.id,k)}" placeholder="${esc(k)}" value="${esc(val)}" aria-label="${esc(k)}" title="${esc(k)}" />`;
+  }).join('');
+}
+function coerce(example, raw){
+  if (typeof example === 'number'){ const n = +raw; return isNaN(n) ? raw : n; }
+  if (Array.isArray(example)) return raw.split(',').map(x => { const n = +x.trim(); return isNaN(n) ? x.trim() : n; }).filter(x => x !== '');
+  return raw;
 }
 function buildInput(s){
-  if (s.id === 'trust')   return { agent: $('agent_trust').value };
-  if (s.id === 'price')   return { asset: $('asset_price').value };
-  if (s.id === 'hash')    return { data: $('in_hash').value };
-  if (s.id === 'stats')   return { text: $('in_stats').value };
-  if (s.id === 'compute') return { op: $('op_compute').value, nums: $('in_compute').value.split(',').map(x=>+x.trim()).filter(n=>!isNaN(n)) };
-  return {};
+  const ex = s.example || {};
+  const out = {};
+  for (const k of Object.keys(ex)){
+    const el = $(fieldId(s.id, k));
+    out[k] = coerce(ex[k], el ? el.value : '');
+  }
+  return out;
 }
 
+let SETTLE = 'local';
 async function load(){
   try {
     const s = await (await fetch('/x402/services')).json();
+    SETTLE = s.settlement;
     $('net').textContent = `${s.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM'} · pay-to ${s.payTo.slice(0,6)}…${s.payTo.slice(-4)}`;
     if (!s.demoTabsEnabled){ $('openBtn').disabled = true; $('tabAddr').textContent = 'On Arc: fund a real wallet, then use the raw x402 API.'; }
     SERVICES = s.services;
     $('svcs').innerHTML = SERVICES.map(s => `
-      <div class="svc" data-id="${s.id}">
-        <div class="top"><span class="sid">${s.id}</span><span class="price">${money(s.priceUsdc)}</span></div>
-        <div class="desc">${s.desc}</div>
+      <div class="svc" data-id="${esc(s.id)}">
+        <div class="top"><span class="sid">${esc(svcName(s))}</span><span class="price">${money(s.priceUsdc)}</span></div>
+        <div class="desc">${esc(s.desc || '')}</div>
+        ${(s.verdict || s.bonded) ? `<div class="badges">${s.verdict ? `<span class="tagb ${esc(s.verdict)}">${esc(s.verdict)}</span>` : ''}${s.bonded ? `<span class="tagb bond">◆ bonded</span>` : ''}</div>` : ''}
         <div class="inp">${inputHTML(s)}</div>
-        <button class="btn go" onclick="callSvc('${s.id}')">Call &amp; pay ${money(s.priceUsdc)} →</button>
-        <div class="out" id="out_${s.id}"></div>
-      </div>`).join('');
-  } catch(e){ $('net').textContent = 'gateway offline'; }
+        <button class="btn go" onclick="callSvc('${esc(s.id)}')">Call &amp; pay ${money(s.priceUsdc)} →</button>
+        <div class="out" id="out_${esc(s.id)}"></div>
+      </div>`).join('') || '<div class="lab" style="grid-column:1/-1">No services available right now.</div>';
+  } catch(e){ $('net').textContent = 'gateway offline'; $('svcs').innerHTML = '<div class="lab" style="grid-column:1/-1">Gateway offline — please refresh to retry.</div>'; }
 }
 
 async function openTab(){
@@ -223,7 +252,12 @@ let BILL = [];
 function addBill(service, price, tx){
   BILL.unshift({ service, price, tx });
   $('billCount').textContent = BILL.length + (BILL.length === 1 ? ' call' : ' calls');
-  $('bill').innerHTML = BILL.map(b => `<div class="row"><span class="s">${b.service}</span><span class="p">${money(b.price)}</span><span class="tx">${b.tx.slice(0,10)}…</span></div>`).join('');
+  $('bill').innerHTML = BILL.map(b => {
+    const txCell = SETTLE === 'arc'
+      ? `<a class="tx txlink" href="https://testnet.arcscan.app/tx/${b.tx}" target="_blank" rel="noopener" title="view on Arcscan">${b.tx.slice(0,10)}… ↗</a>`
+      : `<span class="tx" title="${b.tx}">${b.tx.slice(0,10)}…</span>`;
+    return `<div class="row"><span class="s">${esc(svcName({id:b.service, name: (SERVICES.find(x=>x.id===b.service)||{}).name}))}</span><span class="p">${money(b.price)}</span>${txCell}</div>`;
+  }).join('');
 }
 
 load();

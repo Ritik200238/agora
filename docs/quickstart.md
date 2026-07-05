@@ -57,5 +57,6 @@ Or the SDK: [`sdk/agora-pay.js`](../sdk/agora-pay.js) (`AgoraTab` — zero-dep �
 ## Honest notes
 - The hosted demo settles on a **local EVM** (free, always-on). Agora's contracts are also **deployed on real
   Arc Testnet** and a real **Circle Gateway nanopayment** runs there (`npm run gateway:arc`).
-- Persistence: the service registry + traction survive restarts (JSON store); for scale set `DATABASE_URL`.
-- Publishing `agora-pay-mcp` to npm needs a one-time `npm login` (that's the only human step).
+- Persistence: the service registry + traction survive restarts — a durable **Postgres** backend when
+  `DATABASE_URL` is set (e.g. Supabase), else an atomic JSON store.
+- **`agora-pay-mcp` is published on npm** — any agent installs it with `npx agora-pay-mcp`.
