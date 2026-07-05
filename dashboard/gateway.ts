@@ -12,6 +12,7 @@
 //
 // Every purchase here is counted as REAL externalVolume (distinct from the agents' internal wash volume).
 import express, { type Express } from "express";
+import { resolveMx } from "node:dns/promises";
 import { keccak256, toHex, parseAbiItem, decodeEventLog, parseEther } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { publicClient, walletFor, activeChain, type Wallet } from "../shared/chain";
@@ -46,6 +47,68 @@ async function fetchPrice(assetIn: unknown) {
   return { asset, usd, source: "coingecko", cached: false, asOf: new Date(now).toISOString() };
 }
 
+// --- REAL weather: current conditions from Open-Meteo (free, no key). Throws if the source is down so the
+//     buyer is never charged for a failed fetch. ---
+const WMO: Record<number, string> = { 0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "rime fog", 51: "light drizzle", 53: "drizzle", 55: "dense drizzle", 61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow", 80: "rain showers", 81: "rain showers", 82: "violent rain showers", 95: "thunderstorm", 96: "thunderstorm w/ hail", 99: "thunderstorm w/ hail" };
+const weatherCache = new Map<string, { data: any; at: number }>();
+async function fetchWeather(cityIn: unknown) {
+  const city = String(cityIn || "").trim();
+  if (!city) throw new Error("weather requires input.city (e.g. { city: \"Tokyo\" })");
+  const now = Date.now();
+  const cached = weatherCache.get(city.toLowerCase());
+  if (cached && now - cached.at < 300_000) return { ...cached.data, cached: true };
+  const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`, { headers: { accept: "application/json" } });
+  if (!g.ok) throw new Error(`geocoding unavailable (HTTP ${g.status})`);
+  const loc = (await g.json() as any)?.results?.[0];
+  if (!loc) throw new Error(`unknown city '${city}'`);
+  const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code`, { headers: { accept: "application/json" } });
+  if (!w.ok) throw new Error(`weather source unavailable (HTTP ${w.status})`);
+  const cur = (await w.json() as any)?.current;
+  if (!cur) throw new Error("no live weather data");
+  const data = { city: loc.name, country: loc.country, tempC: cur.temperature_2m, humidity: cur.relative_humidity_2m, windKph: cur.wind_speed_10m, conditions: WMO[cur.weather_code] ?? `code ${cur.weather_code}`, source: "open-meteo", asOf: new Date(now).toISOString() };
+  weatherCache.set(city.toLowerCase(), { data, at: now });
+  return data;
+}
+
+// --- REAL FX: live currency conversion from open.er-api.com (free, no key), cached per base currency. ---
+const fxCache = new Map<string, { rates: Record<string, number>; at: number }>();
+async function fetchFx(input: any) {
+  const from = String(input?.from ?? "USD").toUpperCase().trim();
+  const to = String(input?.to ?? "EUR").toUpperCase().trim();
+  const amount = Number(input?.amount ?? 1);
+  if (!Number.isFinite(amount)) throw new Error("fx requires a numeric input.amount");
+  const now = Date.now();
+  let c = fxCache.get(from);
+  if (!c || now - c.at > 3_600_000) {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${encodeURIComponent(from)}`, { headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error(`fx source unavailable (HTTP ${res.status})`);
+    const j: any = await res.json();
+    if (j?.result !== "success" || !j?.rates) throw new Error(`unknown base currency '${from}'`);
+    c = { rates: j.rates, at: now };
+    fxCache.set(from, c);
+  }
+  const rate = c.rates[to];
+  if (typeof rate !== "number") throw new Error(`unknown target currency '${to}'`);
+  return { from, to, amount, rate, result: +(amount * rate).toFixed(6), source: "er-api", asOf: new Date(c.at).toISOString() };
+}
+
+// --- REAL email deliverability: a live DNS MX lookup (no key). Returns a structured verdict (never throws
+//     on bad input — a "not deliverable" answer is still a valid delivery the buyer asked for). ---
+async function validateEmail(input: any) {
+  const email = String(input?.email ?? "").trim();
+  const m = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/.exec(email);
+  if (!m) return { email, valid: false, deliverable: false, reason: "invalid syntax" };
+  const domain = m[1].toLowerCase();
+  let mx: { exchange: string; priority: number }[] = [];
+  try {
+    mx = await resolveMx(domain);
+  } catch {
+    mx = [];
+  }
+  const hasMx = mx.length > 0;
+  return { email, valid: true, domain, hasMx, deliverable: hasMx, mx: mx.sort((a, b) => a.priority - b.priority).slice(0, 3).map((r) => r.exchange) };
+}
+
 // ---- the real, useful services the gateway sells (pay-per-call, rule-based, no API keys) ----
 interface Service {
   id: string;
@@ -70,6 +133,27 @@ function makeServices(): Record<string, Service> {
       desc: "Live USD price of a crypto asset — REAL market data (CoinGecko). input: { asset }.",
       example: { asset: "bitcoin" },
       run: (input) => fetchPrice(input?.asset),
+    },
+    {
+      id: "fx",
+      price: usd(0.0001), // $0.0001 — live currency conversion (real reference data, the #1 x402 category)
+      desc: "Live currency conversion — REAL FX rates. input: { from, to, amount }.",
+      example: { from: "USD", to: "EUR", amount: 100 },
+      run: (input) => fetchFx(input),
+    },
+    {
+      id: "weather",
+      price: usd(0.0002), // $0.0002 — real current weather for a city
+      desc: "Current weather for a city — REAL data (Open-Meteo). input: { city }.",
+      example: { city: "Tokyo" },
+      run: (input) => fetchWeather(input?.city),
+    },
+    {
+      id: "email",
+      price: usd(0.0002), // $0.0002 — real deliverability check before an agent emails a lead
+      desc: "Email deliverability check via a live DNS MX lookup. input: { email }.",
+      example: { email: "founder@stripe.com" },
+      run: (input) => validateEmail(input),
     },
     {
       id: "trust",
