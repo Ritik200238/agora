@@ -7,6 +7,10 @@ autonomously discover and **pay per-call** for services in **USDC on Arc** (as l
 **hard budget cap** it can never exceed and an **on-chain trust check** before it spends. No account, no
 subscription, no API keys.
 
+Why pay through Agora and not a raw endpoint? The marketplace behind this MCP has **skin in the game**:
+sellers stake USDC, a service that returns junk **doesn't get paid**, and one that keeps failing is **slashed
+into a buyer-protection insurance pool** that refunds wronged buyers. Your agent spends with a safety net.
+
 ## Install (one line)
 
 **Claude Desktop / Claude Code / Cursor** — add to your MCP config:

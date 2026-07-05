@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Agora — the self-running agent economy on Arc</title>
+<title>Agora — payments infrastructure for AI agents, live on Arc</title>
+<meta name="description" content="Agora is live payments infrastructure for AI agents on Circle's Arc: a budget-capped wallet, a trust-checked pay-per-use marketplace, bonded sellers, and buyer-protection insurance. Watch the agent economy settle real USDC 24/7." />
+<meta property="og:title" content="Agora — payments infrastructure for AI agents, live on Arc" />
+<meta property="og:description" content="A budget-capped agent wallet, a trust-checked pay-per-use marketplace, and buyer-protection insurance — settling real USDC on Arc, live." />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12,7 +17,7 @@
 <style>
   :root {
     --paper:#FAFAF7; --card:#FFFFFF; --faint:#F8FAFC;
-    --ink:#0A0A0A; --ink2:#1D1D1F; --label:#6B7280; --mute:#9CA3AF; --faintink:#B8BCC4;
+    --ink:#0A0A0A; --ink2:#1D1D1F; --label:#5A626E; --mute:#767D88; --faintink:#979DA7;
     --line:#E5E7EB; --line2:#EFEFEA;
     --green:#059669; --green2:#10B981; --rust:#C2410C;
     --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -51,6 +56,23 @@
   @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(16,185,129,.45)} 70%{box-shadow:0 0 0 5px rgba(16,185,129,0)} 100%{box-shadow:0 0 0 0 rgba(16,185,129,0)} }
 
   .rule { height:1px; background:var(--line); margin:26px 0; border:0; }
+
+  /* ---------- intro / value prop ---------- */
+  .intro { margin:20px 0 4px; }
+  .intro h1 { font-size:clamp(23px,3.3vw,33px); font-weight:700; letter-spacing:-.03em; line-height:1.12; max-width:24ch; }
+  .intro h1 .accent { color:var(--green); }
+  .intro .introp { margin-top:12px; font-size:15px; color:var(--ink2); max-width:72ch; line-height:1.55; }
+  .intro .introp code { font-family:var(--mono); font-size:12.5px; background:var(--faint); border:1px solid var(--line2); border-radius:5px; padding:1px 6px; }
+  .intro .introcta { margin-top:18px; display:flex; gap:10px; flex-wrap:wrap; }
+  .cta-primary, .cta-ghost { display:inline-flex; align-items:center; gap:7px; font-size:13.5px; font-weight:500; text-decoration:none; border-radius:9px; padding:10px 16px; transition:background .14s,border-color .14s,transform .05s; }
+  .cta-primary { background:var(--ink); color:var(--paper); } .cta-primary:hover { background:#000; }
+  .cta-ghost { background:var(--card); color:var(--ink); border:1px solid var(--line); } .cta-ghost:hover { border-color:var(--ink); }
+  .cta-primary:active, .cta-ghost:active { transform:translateY(1px); }
+
+  /* accessible focus ring for keyboard users */
+  :focus-visible { outline:2px solid var(--green); outline-offset:2px; border-radius:5px; }
+  .demorow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  .demorow .dlab { color:var(--mute); }
 
   /* ---------- hero + stats ---------- */
   .top { display:grid; grid-template-columns:.92fr 1.28fr; gap:52px; align-items:start; }
@@ -182,25 +204,44 @@
       </svg>
       <div>
         <div class="word">agora<span class="dot">.</span></div>
-        <div class="tag lab">Self-running economy · Settling USDC on Arc</div>
+        <div class="tag lab">Payments infrastructure for AI agents · live on Arc</div>
       </div>
     </div>
     <div class="pills">
       <span class="pill" id="netPill"><span class="ldot"></span><span id="netLabel">connecting…</span></span>
       <span class="pill" id="tickPill">Tick 0</span>
       <span class="pill" id="payinsPill" title="real external pay-per-use payins (not internal agent volume)">Payins 0</span>
-      <a class="pill btn" href="/registry" style="text-decoration:none;color:var(--ink)">Marketplace ↗</a>
-      <a class="pill btn" href="/pay" style="text-decoration:none;color:var(--ink)">Pay-per-use ↗</a>
-      <span class="pill btn warn" onclick="act('inject-fraud',this)">Inject fraud</span>
-      <span class="pill btn dark" onclick="act('hijack',this)">Simulate hijack</span>
+      <a class="pill btn" href="/registry" style="text-decoration:none;color:var(--ink)">Marketplace →</a>
+      <a class="pill btn" href="/pay" style="text-decoration:none;color:var(--ink)">Pay-per-use →</a>
+      <a class="pill btn" href="https://github.com/Ritik200238/agora" target="_blank" rel="noopener" style="text-decoration:none;color:var(--ink)">GitHub ↗</a>
     </div>
   </header>
 
   <hr class="rule" />
 
+  <section class="intro">
+    <h1>AI agents paying AI agents — <span class="accent">in USDC, per call, on Arc.</span></h1>
+    <p class="introp">Agora is live payments infrastructure for AI agents: a budget-capped wallet (<code>npx agora-pay-mcp</code>), a trust-checked pay-per-use <a href="/registry" style="color:var(--green)">marketplace</a>, sellers who stake real USDC, and a buyer-protection insurance pool. Below is that economy running itself — agents hiring, paying, validating, lending, and settling real USDC 24/7, with no operator.</p>
+    <div class="introcta">
+      <a class="cta-primary" href="/registry">Browse the marketplace →</a>
+      <a class="cta-ghost" href="/pay">Try pay-per-use</a>
+      <a class="cta-ghost" href="https://github.com/Ritik200238/agora" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <div class="demorow">
+    <span class="lab">The economy, live · running itself 24/7</span>
+    <span style="flex:1 1 auto"></span>
+    <span class="lab dlab">Try a demo beat:</span>
+    <button class="pill btn warn" type="button" onclick="act('inject-fraud',this)" title="Inject a fraudulent worker — watch it get slashed and frozen out">Inject fraud</button>
+    <button class="pill btn dark" type="button" onclick="act('hijack',this)" title="Simulate a hijacked agent trying to drain funds — watch the treasury firewall block it">Simulate hijack</button>
+  </div>
+
   <section class="top">
     <div class="hero">
-      <div class="lab">Gross domestic product · USDC settled</div>
+      <div class="lab">Gross domestic product · USDC settled internally</div>
       <div class="gdp mono" id="gdp">$0.00</div>
       <div class="sub"><span class="ldot"></span><span class="lab">Released from escrow to workers · the economy never stops</span></div>
     </div>
@@ -234,7 +275,7 @@
     <div class="panel">
       <div class="phead">
         <h2>Reputation leaderboard</h2>
-        <span class="lab">Ranked by on-chain reputation · ERC-8004</span>
+        <span class="lab" title="ERC-8004 — the on-chain standard for AI-agent identity & reputation">Ranked by on-chain reputation · ERC-8004</span>
       </div>
       <table>
         <thead><tr>
@@ -250,13 +291,13 @@
         <h2>Live play-by-play</h2>
         <span class="streaming"><span class="ldot"></span><span class="lab">Streaming</span></span>
       </div>
-      <div class="feed" id="feed"></div>
+      <div class="feed" id="feed" aria-live="polite" aria-label="Live economy event feed"></div>
     </div>
   </section>
 
   <div class="spec" id="spec"></div>
 
-  <div class="foot lab">Autonomous · no operator · (A✳ORA)</div>
+  <div class="foot lab">Autonomous · no operator · settling real USDC on Arc · <a href="https://github.com/Ritik200238/agora" style="color:var(--ink2)">source</a></div>
 </div>
 
 <div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
@@ -269,8 +310,9 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const STEPS = ['Posted','Routed','Delivered','Validated','Settled'];
-const money = (x) => (+x).toFixed(2);                              // USDC → clean 2-dp display
-const money2 = (s) => String(s).replace(/\$(\d+(?:\.\d+)?)/g, (_, n) => '$' + (+n).toFixed(2)); // in a sentence
+const fmtAmt = (n) => (+n > 0 && +n < 0.01) ? (+n).toFixed(6) : (+n).toFixed(2);  // sub-cent keeps its precision
+const money = (x) => fmtAmt(x);                                    // USDC → 2-dp, or 6-dp when sub-cent
+const money2 = (s) => String(s).replace(/\$(\d+(?:\.\d+)?)/g, (_, n) => '$' + fmtAmt(n)); // in a sentence
 
 function repClass(s){ return s>0 ? 'pos' : s<0 ? 'neg' : 'zero'; }
 function fmtRep(s){ return `<span class="rep ${repClass(s)}">${s>0?'+':''}${s}</span>`; }
@@ -451,12 +493,17 @@ function closeModal(){ $('overlay').classList.remove('open'); }
 document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
 
 // ---- wire to the live economy ----
+function setOffline(){
+  $('netLabel').textContent = 'Offline';
+  const p = $('netPill'); p.style.color = 'var(--rust)'; p.style.borderColor = '#E7C3AE';
+  const d = p.querySelector('.ldot'); if (d){ d.style.background = '#C2410C'; d.style.animation = 'none'; }
+}
 fetch('/api/info').then(r=>r.json()).then(i => {
   const net = i.network==='arcTestnet' ? 'Arc Testnet' : i.network==='localhost' ? 'Local EVM' : i.network;
   $('netLabel').textContent = net + ' · Live';
-}).catch(()=>{ $('netLabel').textContent = 'Live'; });
+}).catch(setOffline);
 
-fetch('/api/snapshot').then(r=>r.json()).then(renderSnapshot).catch(()=>{});
+fetch('/api/snapshot').then(r=>r.json()).then(renderSnapshot).catch(setOffline);
 
 const es = new EventSource('/api/events');
 es.addEventListener('snapshot', (m) => { try { renderSnapshot(JSON.parse(m.data)); } catch(_){} });
