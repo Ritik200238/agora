@@ -47,10 +47,14 @@ async function deployAll() {
 
   const lendingPool = await dep("LendingPool", usdcAddr, identity.target, reputation.target, bond.target);
 
+  // Buyer-protection insurance pool: every slashed dollar flows here and the gateway pays it out to make
+  // wronged buyers whole. Deployed BEFORE ServiceBond so slashes are routed straight into it.
+  const insurancePool = await dep("InsurancePool", usdcAddr);
+
   // Marketplace-layer collateral: sellers stake behind their pay-per-use service; the gateway can slash a
-  // misbehaving one to the treasury. The gateway operator (the deployer key, which the gateway signs with) is
-  // the sole manager. Override GATEWAY_OPERATOR for Arc if the live gateway runs under a different key.
-  const serviceBond = await dep("ServiceBond", usdcAddr, treasury);
+  // misbehaving one — straight into the insurance pool. The gateway operator (the deployer key, which the
+  // gateway signs with) is the sole manager. Override GATEWAY_OPERATOR for Arc if the gateway runs elsewhere.
+  const serviceBond = await dep("ServiceBond", usdcAddr, insurancePool.target);
   const gatewayOperator = process.env.GATEWAY_OPERATOR || deployer.address;
 
   // Authority: the JobBoard + LendingPool may report reputation + lock/slash bonds; JobBoard writes validations.
@@ -60,12 +64,14 @@ async function deployAll() {
   await (await reputation.setReporter(lendingPool.target, true)).wait();
   await (await bond.setManager(lendingPool.target, true)).wait();
   await (await serviceBond.setManager(gatewayOperator, true)).wait();
+  await (await insurancePool.setManager(gatewayOperator, true)).wait();
 
   // Lock it down: renounce ownership so NO key (incl. the deployer) can add a rogue reporter/manager
-  // and forge reputation or drain bonds. Authority is now immutable.
+  // and forge reputation or drain bonds/pool. Authority is now immutable.
   await (await reputation.renounceOwnership()).wait();
   await (await bond.renounceOwnership()).wait();
   await (await serviceBond.renounceOwnership()).wait();
+  await (await insurancePool.renounceOwnership()).wait();
 
   const out = {
     network: network.name,
@@ -80,6 +86,7 @@ async function deployAll() {
     jobBoard: jobBoard.target,
     lendingPool: lendingPool.target,
     serviceBond: serviceBond.target,
+    insurancePool: insurancePool.target,
     gatewayOperator,
     deployer: deployer.address,
   };

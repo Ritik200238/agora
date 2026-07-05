@@ -20,6 +20,7 @@ export interface RegisteredService {
   failures: number;
   revenueUnits: string; // cumulative earned, atomic units as string
   slashedUnits?: string; // cumulative stake slashed for misbehaviour, atomic units as string
+  requires?: string[]; // required top-level fields the seller PROMISES to return (warranty contract)
 }
 
 interface StoreData {

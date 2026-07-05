@@ -68,6 +68,18 @@ export const serviceBondSlash = (w: Wallet, seller: `0x${string}`, amount: bigin
 export const serviceBondTotalSlashed = () =>
   read(dep().serviceBond, ABIS.ServiceBond, "totalSlashed", []) as Promise<bigint>;
 
+// ---------- InsurancePool (buyer-protection fund) ----------
+/** USDC available in the buyer-protection pool right now. */
+export const insuranceAvailable = () =>
+  read(dep().insurancePool, ABIS.InsurancePool, "available", []) as Promise<bigint>;
+export const insuranceTotalPaidOut = () =>
+  read(dep().insurancePool, ABIS.InsurancePool, "totalPaidOut", []) as Promise<bigint>;
+/** Gateway (manager) refunds a wronged buyer from the pool. Returns the receipt. */
+export const insurancePayout = (w: Wallet, to: `0x${string}`, amount: bigint, reason: string) =>
+  send(w, dep().insurancePool, ABIS.InsurancePool, "payout", [to, amount, reason]);
+export const insuranceFund = (w: Wallet, amount: bigint) =>
+  send(w, dep().insurancePool, ABIS.InsurancePool, "fund", [amount]);
+
 // ---------- JobBoard (ERC-8183 escrow lifecycle) ----------
 export interface PostJobParams {
   workerId: bigint;
