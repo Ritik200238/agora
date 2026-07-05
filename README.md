@@ -44,6 +44,17 @@ Try it in the browser: **[/pay](https://agora-j52a.onrender.com/pay)** · featur
 [$0.0005](https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce) calls, each verified.
 Reproduce with a faucet-funded key: `npm run deploy:arc && npm run arc:demo`.
 
+### 🚪 Open the gates — a marketplace, not just our shop
+
+- **Sellers (earn):** list *your own* HTTP endpoint in one call (`POST /x402/services/register`) — you're paid
+  **directly on-chain** per successful call, sub-cent, no Stripe / KYC / subscription. Buyers aren't charged if
+  your endpoint fails.
+- **Agents (buy):** plug any **Claude / Cursor / Codex** agent in with **one MCP config line** — it gets a
+  budget-capped wallet + a trust-checked marketplace on Arc: `{ "mcpServers": { "agora-pay": { "command":
+  "npx", "args": ["-y", "agora-pay-mcp"] } } }`. See [`mcp/`](./mcp/README.md).
+- The service registry + traction **persist** across restarts; every third-party payin moves real `externalVolume`.
+  Quickstart: [`docs/quickstart.md`](./docs/quickstart.md) · roadmap: [`docs/masterplan.md`](./docs/masterplan.md).
+
 ---
 
 ## What it does (in one screen)

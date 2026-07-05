@@ -9,6 +9,7 @@ import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "./gateway";
 import { rateLimit } from "./ratelimit";
+import { store } from "./store";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? +process.env.PORT : 4000;
@@ -20,6 +21,9 @@ async function main() {
   console.log("• building agent society…");
   const society = await buildSociety();
   const eco = new Economy(society);
+  const persisted = store.getExternal(); // restore REAL external traction across restarts
+  eco.externalVolume = persisted.volumeUnits;
+  eco.externalSales = persisted.sales;
 
   const app = express();
   app.use(express.json());

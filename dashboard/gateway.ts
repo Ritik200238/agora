@@ -19,6 +19,7 @@ import { dep, SETTLEMENT_MODE } from "../shared/config";
 import { usd, fmtUsd, usdcMint, usdcTransfer } from "../shared/usdc";
 import * as A from "../shared/contracts";
 import { rateLimit } from "./ratelimit";
+import { store, type RegisteredService } from "./store";
 import type { Economy } from "../orchestrator/economy";
 import type { Society } from "../agents/society";
 
@@ -190,6 +191,56 @@ async function trustProfile(ref: unknown, eco: Economy) {
   };
 }
 
+// --- multi-tenant registry: any dev lists their own HTTP service; we proxy + settle payment directly. ---
+/** POST the buyer's input to the seller's URL (timeout + size cap; no internal headers forwarded). */
+async function proxyCall(url: string, input: any): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    const resp = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input }), signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!resp.ok) return { ok: false, error: `seller returned HTTP ${resp.status}` };
+    const text = await resp.text();
+    if (text.length > 256_000) return { ok: false, error: "seller response too large" };
+    try {
+      return { ok: true, data: JSON.parse(text) };
+    } catch {
+      return { ok: true, data: text };
+    }
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e).slice(0, 120) };
+  }
+}
+/** Trust for a registered service, derived from its real ledger (success rate, volume, age). */
+function registeredTrust(s: RegisteredService): { trustScore: number; verdict: string } {
+  if (s.calls === 0) return { trustScore: 50, verdict: "NEUTRAL" }; // unproven — neutral
+  const successRate = (s.calls - s.failures) / s.calls;
+  const ageDays = (Date.now() - new Date(s.createdAt).getTime()) / 86_400_000;
+  let t = 40 + successRate * 40 + Math.min(s.calls, 100) * 0.15 + Math.min(ageDays, 20);
+  t = Math.max(0, Math.min(100, Math.round(t)));
+  return { trustScore: t, verdict: t >= 75 ? "TRUSTED" : t >= 40 ? "NEUTRAL" : t >= 15 ? "RISKY" : "AVOID" };
+}
+/** Public (buyer-facing) view of a registered service. */
+function publicService(s: RegisteredService) {
+  return {
+    id: s.id,
+    kind: "registered" as const,
+    name: s.name,
+    priceUsdc: fmtUsd(BigInt(s.priceUnits)),
+    priceUnits: s.priceUnits,
+    desc: s.desc,
+    example: s.exampleInput,
+    payTo: s.payTo,
+    stats: {
+      calls: s.calls,
+      failures: s.failures,
+      revenueUsdc: fmtUsd(BigInt(s.revenueUnits)),
+      successRate: s.calls ? +(((s.calls - s.failures) / s.calls) * 100).toFixed(1) : null,
+    },
+    ...registeredTrust(s),
+  };
+}
+
 interface Tab {
   id: string;
   wallet: Wallet;
@@ -211,7 +262,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
 
   const r = express.Router();
 
-  // --- discovery ---
+  // --- discovery: built-in + registered third-party services (each with a trust verdict) ---
   r.get("/services", (_req, res) =>
     res.json({
       payTo,
@@ -219,15 +270,64 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       chainId: activeChain.id,
       settlement: SETTLEMENT_MODE,
       demoTabsEnabled: canMintDemo,
-      services: Object.values(services).map((s) => ({
-        id: s.id,
-        priceUsdc: fmtUsd(s.price),
-        priceUnits: s.price.toString(),
-        desc: s.desc,
-        example: s.example,
-      })),
+      services: [
+        ...Object.values(services).map((s) => ({
+          id: s.id,
+          kind: "builtin" as const,
+          priceUsdc: fmtUsd(s.price),
+          priceUnits: s.price.toString(),
+          desc: s.desc,
+          example: s.example,
+          trustScore: 90,
+          verdict: "TRUSTED",
+        })),
+        ...store.listServices().map(publicService),
+      ],
     })
   );
+
+  // --- SELLER DOOR: any dev lists their own HTTP service. Paid DIRECTLY on-chain per successful call. ---
+  r.post("/services/register", rateLimit(10), (req, res) => {
+    const b = req.body || {};
+    const name = String(b.name ?? "").trim();
+    const url = String(b.url ?? "").trim();
+    const desc = String(b.desc ?? "").trim();
+    const payTo = String(b.payTo ?? "").trim();
+    const priceNum = Number(b.priceUsdc);
+    if (!name || name.length > 60) return res.status(400).json({ error: "name required (<= 60 chars)" });
+    if (!/^https?:\/\/.{3,}/.test(url)) return res.status(400).json({ error: "url must be a valid http(s) endpoint that accepts POST { input }" });
+    if (!(priceNum > 0) || priceNum > 1) return res.status(400).json({ error: "priceUsdc must be in (0, 1]" });
+    if (!/^0x[0-9a-fA-F]{40}$/.test(payTo)) return res.status(400).json({ error: "payTo must be a 0x wallet address (you get paid here)" });
+    const id = "svc_" + keccak256(toHex(`${url}|${name}|${payTo}`)).slice(2, 12);
+    const svc = store.registerService({
+      id,
+      name,
+      url,
+      priceUnits: usd(priceNum).toString(),
+      desc: desc.slice(0, 200),
+      payTo: payTo as `0x${string}`,
+      exampleInput: b.exampleInput ?? {},
+      createdAt: new Date().toISOString(),
+      calls: 0,
+      failures: 0,
+      revenueUnits: "0",
+    });
+    res.json({
+      ok: true,
+      service: publicService(svc),
+      callWith: `POST /x402/tab/<tabId>/call  { "service": "${id}", "input": ... }`,
+      note: "You're paid directly on-chain to payTo on every SUCCESSFUL call — no custody, no withdrawal. Buyers aren't charged if your endpoint fails.",
+    });
+  });
+
+  // service detail (built-in or registered) + trust
+  r.get("/services/:id", (req, res) => {
+    const reg = store.getService(req.params.id);
+    if (reg) return res.json(publicService(reg));
+    const b = services[req.params.id];
+    if (b) return res.json({ id: b.id, kind: "builtin", priceUsdc: fmtUsd(b.price), desc: b.desc, example: b.example, trustScore: 90, verdict: "TRUSTED" });
+    return res.status(404).json({ error: "unknown service" });
+  });
 
   // --- Tabs: open a capped, pre-funded spending channel (demo credit on the local chain) ---
   r.post("/tab", rateLimit(15), async (req, res) => {
@@ -257,34 +357,54 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     }
   });
 
-  // pay-per-call against a tab (the server pays from the tab wallet; cap is enforced BEFORE paying)
+  // pay-per-call against a tab — works for BOTH built-in and registered (third-party) services.
+  // Cap enforced BEFORE paying; the seller is paid on-chain only on a SUCCESSFUL delivery.
   r.post("/tab/:id/call", async (req, res) => {
     const tab = tabs.get(req.params.id);
     if (!tab) return res.status(404).json({ error: "unknown tab" });
-    const svc = services[String(req.body?.service)];
-    if (!svc) return res.status(404).json({ error: "unknown service", services: Object.keys(services) });
-    if (tab.spent + svc.price > tab.cap)
+    const serviceId = String(req.body?.service ?? "");
+    const builtin = services[serviceId];
+    const registered = builtin ? undefined : store.getService(serviceId);
+    if (!builtin && !registered) return res.status(404).json({ error: "unknown service", builtin: Object.keys(services) });
+    const price = builtin ? builtin.price : BigInt(registered!.priceUnits);
+    const sellerPayTo = builtin ? payTo : registered!.payTo;
+    if (tab.spent + price > tab.cap)
       return res.status(402).json({ error: "tab cap reached — an agent can never overspend its tab", capUsdc: fmtUsd(tab.cap), spentUsdc: fmtUsd(tab.spent) });
 
+    // produce the result FIRST (pay-only-on-success — a failed seller call never charges the buyer)
     let result: any;
-    try {
-      result = await svc.run(req.body?.input, eco); // compute BEFORE charging, so a bad input isn't billed
-    } catch (e) {
-      return res.status(400).json({ error: String((e as Error)?.message ?? e) });
+    if (builtin) {
+      try {
+        result = await builtin.run(req.body?.input, eco);
+      } catch (e) {
+        return res.status(400).json({ error: String((e as Error)?.message ?? e), charged: false });
+      }
+    } else {
+      const proxied = await proxyCall(registered!.url, req.body?.input);
+      if (!proxied.ok) {
+        store.recordCall(registered!.id, price, false); // a failure dents the seller's trust score
+        return res.status(502).json({ error: "seller service failed — you were NOT charged: " + proxied.error, charged: false });
+      }
+      result = proxied.data;
     }
+
+    // pay the provider on-chain (the seller for registered, the house producer for built-ins)
     let tx: string;
     try {
-      const rcpt = await usdcTransfer(tab.wallet, dep().usdc, payTo, svc.price);
+      const rcpt = await usdcTransfer(tab.wallet, dep().usdc, sellerPayTo, price);
       tx = rcpt.transactionHash;
     } catch (e) {
       return res.status(500).json({ error: "payment failed: " + String((e as Error)?.message ?? e) });
     }
-    tab.spent += svc.price;
-    tab.items.push({ service: svc.id, priceUsdc: fmtUsd(svc.price), tx, at: new Date().toISOString() });
-    eco.recordExternalSale(svc.price, svc.id, tab.id);
+    tab.spent += price;
+    tab.items.push({ service: serviceId, priceUsdc: fmtUsd(price), tx, at: new Date().toISOString() });
+    eco.recordExternalSale(price, serviceId, tab.id);
+    store.addExternal(price);
+    if (registered) store.recordCall(registered.id, price, true);
     res.json({
-      service: svc.id,
-      paidUsdc: fmtUsd(svc.price),
+      service: serviceId,
+      kind: registered ? "registered" : "builtin",
+      paidUsdc: fmtUsd(price),
       tx,
       result,
       tab: { capUsdc: fmtUsd(tab.cap), spentUsdc: fmtUsd(tab.spent), remainingUsdc: fmtUsd(tab.cap - tab.spent), calls: tab.items.length },
@@ -344,6 +464,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       return res.status(400).json({ error: String((e as Error)?.message ?? e) });
     }
     eco.recordExternalSale(svc.price, svc.id, "agent:" + String(payment).slice(0, 10));
+    store.addExternal(svc.price);
     res.json({ service: svc.id, paidUsdc: fmtUsd(svc.price), result });
   });
 
