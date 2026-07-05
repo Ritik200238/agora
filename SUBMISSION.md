@@ -13,6 +13,7 @@ activity — no humans, no ad spend, free funds.
 - **Product spec:** [`tdd.md`](./tdd.md) · **How it works + honesty notes:** [`README.md`](./README.md)
 - **Live dashboard:** [agora-j52a.onrender.com](https://agora-j52a.onrender.com) · **Landing:** [agora-arc.vercel.app](https://agora-arc.vercel.app) · **Repo:** [github.com/Ritik200238/agora](https://github.com/Ritik200238/agora)
 - **✅ On real Arc Testnet (chain 5042002):** contracts deployed + tiny-USDC pay-per-use **settled on-chain** — [$0.000001 nanopayment](https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839) · [$0.001](https://testnet.arcscan.app/tx/0x74073eee40d40e9b5fc99425e1199715305e1f1a831917df79af2574c2d3cd8f) · [$0.0005](https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce)
+- **✅ Open marketplace (the delta):** any dev **lists their own service** (`POST /x402/services/register`, paid directly on-chain per call), and any **Claude/Cursor agent plugs in via one MCP line** (`agora-pay-mcp`) — budget-capped wallet + trust-checked pay-per-use. Registry + traction persist. See [`docs/masterplan.md`](./docs/masterplan.md).
 - **Run it:** `npm install && npm test` then `npm run dashboard` → http://localhost:4000
 - **Deploy a live link:** [`DEPLOY.md`](./DEPLOY.md) (Render/Railway/Fly via the `Dockerfile`)
 - **Observed dynamics:** [`docs/research-note.md`](./docs/research-note.md)

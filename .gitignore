@@ -26,4 +26,7 @@ circle-agent/
 # Vercel CLI link/build artifacts
 .vercel/
 
+# persistent store (service registry + traction) — runtime data, not source
+.data/
+
 .vercel

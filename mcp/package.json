@@ -1,0 +1,28 @@
+{
+  "name": "agora-pay-mcp",
+  "version": "0.1.0",
+  "description": "Give any AI agent a budget-capped wallet + a trust-checked pay-per-use marketplace on Arc — one config line. USDC nanopayments over x402.",
+  "type": "module",
+  "bin": { "agora-pay-mcp": "index.js" },
+  "main": "index.js",
+  "files": ["index.js", "README.md"],
+  "engines": { "node": ">=18" },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "x402",
+    "usdc",
+    "arc",
+    "circle",
+    "nanopayments",
+    "agent-payments",
+    "pay-per-use"
+  ],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Ritik200238/agora" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}
