@@ -22,6 +22,7 @@ async function main() {
   console.log("• building agent society…");
   const society = await buildSociety();
   const eco = new Economy(society);
+  await store.init(); // load durable state (Postgres if DATABASE_URL, else the JSON file)
   const persisted = store.getExternal(); // restore REAL external traction across restarts
   eco.externalVolume = persisted.volumeUnits;
   eco.externalSales = persisted.sales;
