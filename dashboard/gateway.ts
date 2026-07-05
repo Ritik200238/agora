@@ -212,6 +212,24 @@ async function proxyCall(url: string, input: any): Promise<{ ok: boolean; data?:
     return { ok: false, error: String((e as Error)?.message ?? e).slice(0, 120) };
   }
 }
+/** The warranty check: did the seller deliver what it promised? Empty/garbage output that comes back with a
+ *  200 is NOT a valid delivery — the buyer must not be charged for it. If the seller declared `requires`
+ *  (top-level fields it promises to return), every one must be present and non-null; otherwise we just
+ *  require a non-empty response. Objective + automatable, so "never charged for junk" needs no human. */
+function validateDelivery(data: any, requires?: string[]): { ok: boolean; reason?: string } {
+  const isEmpty =
+    data == null ||
+    (typeof data === "string" && data.trim() === "") ||
+    (typeof data === "object" && !Array.isArray(data) && Object.keys(data).length === 0);
+  if (isEmpty) return { ok: false, reason: "empty response" };
+  if (requires && requires.length) {
+    if (typeof data !== "object" || Array.isArray(data)) return { ok: false, reason: `expected an object with fields: ${requires.join(", ")}` };
+    const missing = requires.filter((k) => data[k] === undefined || data[k] === null || data[k] === "");
+    if (missing.length) return { ok: false, reason: `missing promised field(s): ${missing.join(", ")}` };
+  }
+  return { ok: true };
+}
+
 /** Trust for a registered service from its real ledger (success rate, volume, age) + on-chain bonded stake.
  *  The bond is the moat: staked USDC is skin in the game a plain rating can't fake, and it lifts an
  *  otherwise-unproven service above neutral because a bad actor would lose that money to a slash. */
@@ -241,6 +259,8 @@ function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
     desc: s.desc,
     example: s.exampleInput,
     payTo: s.payTo,
+    requires: s.requires ?? [], // fields the seller promises to return (warranty contract)
+    warranted: true, // every marketplace call is covered: never charged for junk + insured
     bondUsdc: fmtUsd(bondUnits), // real USDC the seller has staked behind this service
     stats: {
       calls: s.calls,
@@ -258,8 +278,23 @@ interface Tab {
   wallet: Wallet;
   cap: bigint;
   spent: bigint;
-  items: { service: string; priceUsdc: string; tx: string; at: string }[];
+  items: { service: string; priceUsdc: string; priceUnits: string; tx: string; at: string }[];
   createdAt: string;
+}
+
+interface Claim {
+  id: string;
+  tabId: string;
+  buyer: `0x${string}`; // refunded here (the tab's wallet)
+  service: string;
+  seller: `0x${string}`;
+  amount: bigint;
+  tx: string; // the original payment being disputed
+  reason: string;
+  status: "open" | "paid" | "rejected";
+  createdAt: string;
+  resolvedAt?: string;
+  payoutTx?: string;
 }
 
 /** Mount the public pay-per-use gateway at /x402 on the given Express app. */
@@ -271,6 +306,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   const canMintDemo = SETTLEMENT_MODE !== "arc"; // MockUSDC.mint + free gas exist only on the local chain
   const consumed = new Set<string>(); // per-tx replay protection for the raw x402 path
   const tabs = new Map<string, Tab>();
+  const claims = new Map<string, Claim>(); // buyer-protection disputes (paid out of the insurance pool)
 
   // When a bonded service turns out to be genuinely bad — ≥50% of its calls fail over a meaningful sample —
   // the gateway slashes a penalty from its on-chain stake to the treasury. The failure gate (≥4 calls) means a
@@ -302,7 +338,11 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     const registered = store.listServices();
     const bonds = await Promise.all(registered.map((s) => A.serviceBondOf(s.payTo).catch(() => 0n)));
     const totalBonded = bonds.reduce((a, b) => a + b, 0n);
-    const totalSlashed = await A.serviceBondTotalSlashed().catch(() => 0n);
+    const [totalSlashed, insurancePool, insurancePaid] = await Promise.all([
+      A.serviceBondTotalSlashed().catch(() => 0n),
+      A.insuranceAvailable().catch(() => 0n),
+      A.insuranceTotalPaidOut().catch(() => 0n),
+    ]);
     res.json({
       payTo,
       token: dep().usdc,
@@ -310,10 +350,15 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       settlement: SETTLEMENT_MODE,
       demoTabsEnabled: canMintDemo,
       serviceBond: dep().serviceBond, // stake here to bond your service (skin in the game)
+      insurancePoolContract: dep().insurancePool,
       marketplace: {
         bondedServices: bonds.filter((b) => b > 0n).length,
         totalBondedUsdc: fmtUsd(totalBonded), // real USDC staked across the marketplace
         totalSlashedUsdc: fmtUsd(totalSlashed), // real USDC seized from bad services
+      },
+      insurance: {
+        poolUsdc: fmtUsd(insurancePool), // the buyer-protection fund (financed by slashed bad actors)
+        paidOutUsdc: fmtUsd(insurancePaid), // real refunds already made to wronged buyers
       },
       services: [
         ...Object.values(services).map((s) => ({
@@ -344,6 +389,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     if (!/^https?:\/\/.{3,}/.test(url)) return res.status(400).json({ error: "url must be a valid http(s) endpoint that accepts POST { input }" });
     if (!(priceNum > 0) || priceNum > 1) return res.status(400).json({ error: "priceUsdc must be in (0, 1]" });
     if (!/^0x[0-9a-fA-F]{40}$/.test(payTo)) return res.status(400).json({ error: "payTo must be a 0x wallet address (you get paid here)" });
+    const requires = Array.isArray(b.requires) ? b.requires.map((k: any) => String(k)).filter((k: string) => k && k.length <= 40).slice(0, 12) : undefined;
     const id = "svc_" + keccak256(toHex(`${url}|${name}|${payTo}`)).slice(2, 12);
     const svc = store.registerService({
       id,
@@ -357,6 +403,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       calls: 0,
       failures: 0,
       revenueUnits: "0",
+      requires,
     });
     res.json({
       ok: true,
@@ -436,6 +483,13 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
         const sellerSlashed = await maybeSlashBadService(registered!, price); // …and, if it's bonded + truly bad, its stake
         return res.status(502).json({ error: "seller service failed — you were NOT charged: " + proxied.error, charged: false, ...(sellerSlashed ? { sellerSlashed } : {}) });
       }
+      // WARRANTY: a 200 carrying empty/garbage output is NOT a valid delivery — never charge for junk.
+      const delivered = validateDelivery(proxied.data, registered!.requires);
+      if (!delivered.ok) {
+        store.recordCall(registered!.id, price, false);
+        const sellerSlashed = await maybeSlashBadService(registered!, price);
+        return res.status(502).json({ error: `seller delivered invalid output (${delivered.reason}) — you were NOT charged`, charged: false, warranty: "invalid-delivery", ...(sellerSlashed ? { sellerSlashed } : {}) });
+      }
       result = proxied.data;
     }
 
@@ -448,7 +502,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       return res.status(500).json({ error: "payment failed: " + String((e as Error)?.message ?? e) });
     }
     tab.spent += price;
-    tab.items.push({ service: serviceId, priceUsdc: fmtUsd(price), tx, at: new Date().toISOString() });
+    tab.items.push({ service: serviceId, priceUsdc: fmtUsd(price), priceUnits: price.toString(), tx, at: new Date().toISOString() });
     eco.recordExternalSale(price, serviceId, tab.id);
     store.addExternal(price);
     if (registered) store.recordCall(registered.id, price, true);
@@ -475,6 +529,75 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       calls: tab.items.length,
       items: tab.items,
     });
+  });
+
+  // --- BUYER PROTECTION: dispute a charged call; if upheld, the buyer is refunded from the insurance pool ---
+  // (Auto-guarantee already covers objective junk — you're never charged for empty/invalid output. This
+  //  covers the SUBJECTIVE case: the output passed validation but was still wrong. MVP adjudication is
+  //  operator-reviewed; staked-juror arbitration is the documented next step.)
+  r.post("/claim", rateLimit(20), (req, res) => {
+    const tab = tabs.get(String(req.body?.tabId ?? ""));
+    if (!tab) return res.status(404).json({ error: "unknown tab" });
+    const tx = String(req.body?.tx ?? "");
+    const item = tab.items.find((i) => i.tx.toLowerCase() === tx.toLowerCase());
+    if (!item) return res.status(404).json({ error: "no charged call with that tx on this tab" });
+    if ([...claims.values()].some((c) => c.tx.toLowerCase() === tx.toLowerCase()))
+      return res.status(409).json({ error: "a claim already exists for this call" });
+    const registered = store.getService(item.service);
+    const seller = registered ? registered.payTo : payTo;
+    const id = "clm_" + keccak256(toHex(`${tab.id}|${tx}`)).slice(2, 12);
+    const claim: Claim = {
+      id,
+      tabId: tab.id,
+      buyer: tab.wallet.account.address,
+      service: item.service,
+      seller,
+      amount: BigInt(item.priceUnits),
+      tx,
+      reason: String(req.body?.reason ?? "").slice(0, 200) || "buyer disputes the delivery",
+      status: "open",
+      createdAt: new Date().toISOString(),
+    };
+    claims.set(id, claim);
+    res.json({ ok: true, claim: { id, status: claim.status, amountUsdc: fmtUsd(claim.amount), service: claim.service }, note: "Filed. If upheld, you're refunded from the buyer-protection pool and the seller is slashed." });
+  });
+
+  // transparency: list claims
+  r.get("/claims", (_req, res) =>
+    res.json({
+      claims: [...claims.values()].map((c) => ({ id: c.id, service: c.service, amountUsdc: fmtUsd(c.amount), status: c.status, reason: c.reason, createdAt: c.createdAt, resolvedAt: c.resolvedAt, payoutTx: c.payoutTx })),
+    })
+  );
+
+  // operator resolves a claim → refund from the insurance pool + slash the seller to replenish it
+  r.post("/admin/claim/:id/resolve", rateLimit(30), async (req, res) => {
+    const claim = claims.get(String(req.params.id));
+    if (!claim) return res.status(404).json({ error: "unknown claim" });
+    if (claim.status !== "open") return res.status(409).json({ error: `claim already ${claim.status}` });
+    if (req.body?.approve === false) {
+      claim.status = "rejected";
+      claim.resolvedAt = new Date().toISOString();
+      return res.json({ ok: true, claim: { id: claim.id, status: claim.status } });
+    }
+    try {
+      // 1) make the buyer whole from the buyer-protection pool
+      const rcpt = await A.insurancePayout(faucet, claim.buyer, claim.amount, `claim ${claim.id} on ${claim.service}`);
+      // 2) slash the seller to replenish the pool (registered + bonded sellers only) + dent their trust
+      if (store.getService(claim.service)) {
+        const bond = await A.serviceBondOf(claim.seller).catch(() => 0n);
+        if (bond > 0n) {
+          const penalty = claim.amount > bond ? bond : claim.amount;
+          await A.serviceBondSlash(faucet, claim.seller, penalty, `upheld claim ${claim.id}`).catch(() => {});
+          store.recordSlash(claim.service, penalty);
+        }
+      }
+      claim.status = "paid";
+      claim.resolvedAt = new Date().toISOString();
+      claim.payoutTx = rcpt.transactionHash;
+      res.json({ ok: true, claim: { id: claim.id, status: claim.status, refundedUsdc: fmtUsd(claim.amount), payoutTx: claim.payoutTx } });
+    } catch (e) {
+      res.status(500).json({ error: "payout failed: " + String((e as Error)?.message ?? e) });
+    }
   });
 
   // --- Raw x402 (for external agents with their own funded wallet) ---

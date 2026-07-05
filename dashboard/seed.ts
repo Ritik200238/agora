@@ -25,6 +25,7 @@ interface HouseSvc {
   priceUsdc: number;
   desc: string;
   example: any;
+  requires: string[]; // output fields it promises (the warranty contract)
   run: (input: any) => any; // always returns a result (never throws) — bad input ≠ a service failure
 }
 
@@ -37,6 +38,7 @@ const HOUSE: HouseSvc[] = [
     priceUsdc: 0.0002,
     desc: "Generate up to 50 RFC-4122 v4 UUIDs. input: { count }.",
     example: { count: 3 },
+    requires: ["uuids"],
     run: (i) => {
       const count = Math.min(Math.max(Math.floor(Number(i?.count) || 1), 1), 50);
       return { count, uuids: Array.from({ length: count }, () => randomUUID()) };
@@ -50,6 +52,7 @@ const HOUSE: HouseSvc[] = [
     priceUsdc: 0.0001,
     desc: "Turn any text into a clean URL slug. input: { text }.",
     example: { text: "Hello Arc World!" },
+    requires: ["slug"],
     run: (i) => {
       const text = String(i?.text ?? "");
       const slug = text.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -64,6 +67,7 @@ const HOUSE: HouseSvc[] = [
     priceUsdc: 0.0002,
     desc: "Validate + pretty-print JSON. input: { json }.",
     example: { json: '{"a":1,"b":[2,3]}' },
+    requires: ["valid"],
     run: (i) => {
       const raw = typeof i?.json === "string" ? i.json : JSON.stringify(i?.json ?? null);
       try {
@@ -110,6 +114,7 @@ export async function seedMarketplace(society: Society, port: number): Promise<n
         failures: prev?.failures ?? 0,
         revenueUnits: prev?.revenueUnits ?? "0",
         slashedUnits: prev?.slashedUnits ?? "0",
+        requires: h.requires,
       });
       // stake real USDC behind it (top up to BOND_EACH)
       const already = await A.serviceBondOf(acct.address).catch(() => 0n);

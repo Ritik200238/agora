@@ -106,8 +106,12 @@ const $ = (id) => document.getElementById(id);
 const money = (x) => '$' + (+x).toFixed(+x < 0.01 ? 6 : 2);
 fetch('/x402/services').then(r=>r.json()).then(d => {
   $('net').textContent = (d.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM') + ' · pay-to ' + String(d.payTo).slice(0,6) + '…' + String(d.payTo).slice(-4);
-  const m = d.marketplace;
-  if (m && +m.totalBondedUsdc > 0) $('stake').textContent = '◆ ' + money(m.totalBondedUsdc) + ' staked across ' + m.bondedServices + ' bonded service' + (m.bondedServices===1?'':'s') + (+m.totalSlashedUsdc>0 ? ' · ' + money(m.totalSlashedUsdc) + ' slashed from bad actors' : '');
+  const m = d.marketplace, ins = d.insurance;
+  const bits = [];
+  if (m && +m.totalBondedUsdc > 0) bits.push('◆ ' + money(m.totalBondedUsdc) + ' staked across ' + m.bondedServices + ' bonded service' + (m.bondedServices===1?'':'s'));
+  if (ins && +ins.poolUsdc > 0) bits.push('🛡️ ' + money(ins.poolUsdc) + ' buyer-protection fund' + (+ins.paidOutUsdc>0 ? ' (' + money(ins.paidOutUsdc) + ' refunded)' : ''));
+  if (m && +m.totalSlashedUsdc > 0) bits.push(money(m.totalSlashedUsdc) + ' slashed from bad actors');
+  if (bits.length) $('stake').innerHTML = bits.join(' &nbsp;·&nbsp; ');
   const svcs = d.services || [];
   $('count').textContent = svcs.length + ' live';
   $('grid').innerHTML = svcs.map(s => `
