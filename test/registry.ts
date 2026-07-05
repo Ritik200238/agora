@@ -6,9 +6,12 @@ import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "../dashboard/gateway";
-import { fmtUsd, usdcBalance } from "../shared/usdc";
+import { fmtUsd, usd, usdcBalance, usdcMint, usdcApprove } from "../shared/usdc";
 import { dep } from "../shared/config";
+import { walletFor, activeChain } from "../shared/chain";
+import * as A from "../shared/contracts";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { parseEther } from "viem";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -44,7 +47,8 @@ async function main() {
     console.log("\n[multi-tenant registry — a stranger's service, paid by an agent]");
 
     // 1. a third-party seller registers their own service
-    const seller = privateKeyToAccount(generatePrivateKey());
+    const sellerPk = generatePrivateKey();
+    const seller = privateKeyToAccount(sellerPk);
     const reg = await post("/x402/services/register", {
       name: "Uppercase API", url: `${base}/seller-echo`, priceUsdc: 0.002,
       desc: "uppercases your text", payTo: seller.address, exampleInput: { text: "hi" },
@@ -84,6 +88,42 @@ async function main() {
 
     // 8. real external volume moved
     check("real external volume recorded from the third-party call", eco.externalSales >= 1 && eco.externalVolume > 0n, `sales=${eco.externalSales}, vol=$${fmtUsd(eco.externalVolume)}`);
+
+    console.log("\n[Phase 2 — the moat: sellers stake real USDC; a bad service gets slashed]");
+
+    // fund the good seller so it can post a bond (gas + USDC on the local chain)
+    const sellerWallet = walletFor(sellerPk);
+    await society.faucet.sendTransaction({ account: society.faucet.account, chain: activeChain, to: seller.address, value: parseEther("1") });
+    await usdcMint(society.faucet, dep().usdc, seller.address, usd(20));
+
+    // 9. a seller stakes real USDC behind their service → BONDED, verifiable on-chain
+    const beforeBond = await get(`/x402/services/${svcId}`);
+    await usdcApprove(sellerWallet, dep().usdc, dep().serviceBond, usd(10));
+    await A.serviceBondPost(sellerWallet, usd(10));
+    const afterBond = await get(`/x402/services/${svcId}`);
+    check("a seller stakes real USDC behind their service (BONDED)", afterBond.body.bonded === true && afterBond.body.bondUsdc === "10" && (await A.serviceBondOf(seller.address)) === usd(10), `bond=$${afterBond.body.bondUsdc}`);
+
+    // 10. staking real money lifts the trust score above the un-bonded baseline (skin in the game)
+    check("bonding raises the service's trust score", afterBond.body.trustScore > beforeBond.body.trustScore, `${beforeBond.body.trustScore} → ${afterBond.body.trustScore}`);
+
+    // 11. a BONDED service that keeps failing bleeds its stake (≥50% failures over ≥4 calls → on-chain slash)
+    const badPk = generatePrivateKey();
+    const badSeller = privateKeyToAccount(badPk);
+    const badWallet = walletFor(badPk);
+    await society.faucet.sendTransaction({ account: society.faucet.account, chain: activeChain, to: badSeller.address, value: parseEther("1") });
+    await usdcMint(society.faucet, dep().usdc, badSeller.address, usd(5));
+    await usdcApprove(badWallet, dep().usdc, dep().serviceBond, usd(5));
+    await A.serviceBondPost(badWallet, usd(5));
+    const regBonded = await post("/x402/services/register", { name: "Bonded-but-broken", url: `${base}/seller-bad`, priceUsdc: 0.002, desc: "bonded yet always fails", payTo: badSeller.address });
+    const bondedBadId = regBonded.body.service.id;
+    const bondBefore = await A.serviceBondOf(badSeller.address);
+    let lastBad: any;
+    for (let i = 0; i < 4; i++) lastBad = await post(`/x402/tab/${tab.body.tabId}/call`, { service: bondedBadId, input: {} });
+    const bondAfter = await A.serviceBondOf(badSeller.address);
+    check("a bonded service that keeps failing gets SLASHED on-chain", bondAfter < bondBefore && !!lastBad.body?.sellerSlashed, `bond $${fmtUsd(bondBefore)} → $${fmtUsd(bondAfter)}, slashed $${lastBad.body?.sellerSlashed?.slashedUsdc}`);
+
+    // 12. …and the buyer is STILL never charged for the failure — the bond, not the buyer, pays the price
+    check("the buyer was still NOT charged for the failed call", lastBad.status === 502 && lastBad.body.charged === false, `status=${lastBad.status}`);
   } finally {
     if (server) server.close();
     chain.stop();

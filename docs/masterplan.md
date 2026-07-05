@@ -69,20 +69,28 @@ Neon/Supabase db and set `DATABASE_URL` on Render.
 
 ---
 
-## Phase 2 — THE MOAT (trust + warranty; the empty lanes the organizers flagged)
+## Phase 2 — THE MOAT (trust + warranty; the empty lanes the organizers flagged)  ✅ SHIPPED 2026-07-05
 
-### 2.1 Bonded services (Prior Art #8 — "reputation as collateral", nearly-empty lane)
-- Registered sellers can stake a USDC bond via the existing `ReputationBond` contract → "BONDED"
-  badge + higher trust score. Real skin in the game, on-chain.
+### 2.1 Bonded services (Prior Art #8 — "reputation as collateral", nearly-empty lane)  ✅
+- Built a dedicated **`ServiceBond`** contract (marketplace-layer collateral, distinct from the internal
+  `ReputationBond`): a seller stakes USDC behind their `payTo` → **BONDED** badge + trust boost. The gateway
+  reads the live on-chain bond in discovery/detail. Ownership renounced post-deploy; the gateway operator is
+  the sole slasher. Contract tests (5) + e2e all green.
 
-### 2.2 Money-back calls (escrowed pay-per-use)
-- Optional `escrow: true` calls: payment held; objective failure (timeout, malformed response,
-  non-200) → automatic refund + bond slash + reputation hit, via our existing escrow/slash mechanics.
-- "Money-back-guaranteed API calls" — the differentiator nobody else offers.
+### 2.2 Money-back calls (escrowed pay-per-use)  ✅ (delivered as slash-on-failure)
+- The gateway already enforced **pay-only-on-success** (a failed seller call never charges the buyer). Phase 2
+  adds the teeth: a **bonded** service that keeps failing (≥50% failures over ≥4 calls) is **slashed on-chain**
+  — 100× the call price, capped at the stake, sent to the treasury. The buyer keeps their money; the bad
+  seller bleeds theirs. "Money-back + skin-in-the-game" — the differentiator nobody else offers.
 
-### 2.3 Trust oracle v2
-- Score real registered services from their actual ledger: success rate, latency, refunds, slashes,
-  bond size, age. Verdicts backed by collateral — a warranty, not an opinion.
+### 2.3 Trust oracle v2  ✅
+- Registered-service trust now folds in the **live bonded stake** on top of success rate / volume / age: an
+  unproven-but-bonded service reads above neutral (stake substitutes for track record), and staking lifts the
+  score (proven in the e2e: 80 → 85). Verdicts backed by collateral — a warranty, not an opinion.
+
+> Note: full **Arc-testnet** slashing needs the live gateway operator key set as the ServiceBond manager
+> (`GATEWAY_OPERATOR` at deploy). On the local chain and the live Render gateway (which runs a local chain),
+> the operator = deployer = manager, so slashing is real and tested there today.
 
 ---
 

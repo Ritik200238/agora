@@ -16,6 +16,7 @@ export interface RegisteredService {
   calls: number;
   failures: number;
   revenueUnits: string; // cumulative earned, atomic units as string
+  slashedUnits?: string; // cumulative stake slashed for misbehaviour, atomic units as string
 }
 
 interface StoreData {
@@ -74,6 +75,13 @@ export class Store {
     s.calls += 1;
     if (!success) s.failures += 1;
     else s.revenueUnits = (BigInt(s.revenueUnits) + priceUnits).toString();
+    this.persist();
+  }
+  /** Record USDC stake slashed from a misbehaving service (for transparency in the marketplace). */
+  recordSlash(id: string, units: bigint) {
+    const s = this.data.services[id];
+    if (!s) return;
+    s.slashedUnits = (BigInt(s.slashedUnits ?? "0") + units).toString();
     this.persist();
   }
 

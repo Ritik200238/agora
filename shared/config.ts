@@ -25,6 +25,8 @@ export interface Deployment {
   bond: `0x${string}`;
   jobBoard: `0x${string}`;
   lendingPool: `0x${string}`;
+  serviceBond: `0x${string}`;
+  gatewayOperator?: string;
   deployer: string;
 }
 

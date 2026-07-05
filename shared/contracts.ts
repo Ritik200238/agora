@@ -53,6 +53,21 @@ export const withdrawBond = (w: Wallet, amount: bigint) =>
 export const bondOf = (addr: `0x${string}`) =>
   read(dep().bond, ABIS.ReputationBond, "bondOf", [addr]) as Promise<bigint>;
 
+// ---------- ServiceBond (marketplace-layer collateral) ----------
+/** Seller stakes USDC behind their listed service (approve the ServiceBond first). */
+export const serviceBondPost = (w: Wallet, amount: bigint) =>
+  send(w, dep().serviceBond, ABIS.ServiceBond, "bond", [amount]);
+export const serviceBondUnbond = (w: Wallet, amount: bigint) =>
+  send(w, dep().serviceBond, ABIS.ServiceBond, "unbond", [amount]);
+/** How much USDC a seller (payTo address) has staked behind their service. */
+export const serviceBondOf = (addr: `0x${string}`) =>
+  read(dep().serviceBond, ABIS.ServiceBond, "bondOf", [addr]) as Promise<bigint>;
+/** Gateway (manager) slashes a misbehaving service's stake to the treasury. Returns the receipt. */
+export const serviceBondSlash = (w: Wallet, seller: `0x${string}`, amount: bigint, reason: string) =>
+  send(w, dep().serviceBond, ABIS.ServiceBond, "slash", [seller, amount, reason]);
+export const serviceBondTotalSlashed = () =>
+  read(dep().serviceBond, ABIS.ServiceBond, "totalSlashed", []) as Promise<bigint>;
+
 // ---------- JobBoard (ERC-8183 escrow lifecycle) ----------
 export interface PostJobParams {
   workerId: bigint;
