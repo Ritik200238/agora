@@ -134,6 +134,10 @@ async function main() {
   }
 }
 
+// Belt-and-suspenders: a stray background rejection (e.g. a flaky DB write) must never take the live site
+// down — log it and keep serving. Fatal boot errors still exit via main().catch below.
+process.on("unhandledRejection", (r) => console.error("unhandledRejection (ignored):", r instanceof Error ? r.message : r));
+
 main().catch((e) => {
   console.error(e);
   process.exit(1);
