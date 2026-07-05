@@ -1,5 +1,11 @@
 # Agora — Observed Economic Dynamics (research note)
 
+> **Addendum (2026-07-05):** this note describes an **earlier** version of the economy (11 agents, fixed
+> prices, no lender). The economy has since gained **competitive price discovery** (workers quote; the broker
+> routes on price × reputation) and a **reputation-backed credit market** (a 12th agent, the Lender). The
+> current tested run shows varied prices and active loans — see the README's "What's verified" section. Treat
+> the observations below as the baseline they were measured on, not the current feature set.
+
 A short, honest write-up of what we actually observe when the Agora agent economy runs on-chain. All numbers
 below are from real `npm run test:e2e` runs (a 20-tick local economy of 11 agents); reproduce with that command.
 
