@@ -1,0 +1,28 @@
+{
+  "name": "agora-paywall",
+  "version": "0.1.0",
+  "description": "Put a per-request USDC paywall in front of any Express/Node route in 3 lines. Sub-cent pay-per-use for articles, APIs, and content — settled on Circle's Arc via x402. No custody, no subscription.",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "files": ["index.js", "README.md"],
+  "keywords": [
+    "x402",
+    "paywall",
+    "usdc",
+    "arc",
+    "circle",
+    "micropayments",
+    "pay-per-use",
+    "ai-agents",
+    "express",
+    "middleware",
+    "agent-payments"
+  ],
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/Ritik200238/agora.git" },
+  "homepage": "https://github.com/Ritik200238/agora#readme"
+}
