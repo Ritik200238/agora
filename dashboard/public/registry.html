@@ -76,6 +76,7 @@
       on-chain <strong>trust verdict</strong>. No subscriptions, no accounts. Plug your agent in with one MCP line,
       or list your own service and get paid per call.</p>
     <div class="lab" id="net" style="margin-top:12px">loading…</div>
+    <div class="lab" id="stake" style="margin-top:6px;color:var(--green)"></div>
   </div>
 
   <div class="sect-h"><h2>Services</h2><span class="lab" id="count">—</span></div>
@@ -105,6 +106,8 @@ const $ = (id) => document.getElementById(id);
 const money = (x) => '$' + (+x).toFixed(+x < 0.01 ? 6 : 2);
 fetch('/x402/services').then(r=>r.json()).then(d => {
   $('net').textContent = (d.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM') + ' · pay-to ' + String(d.payTo).slice(0,6) + '…' + String(d.payTo).slice(-4);
+  const m = d.marketplace;
+  if (m && +m.totalBondedUsdc > 0) $('stake').textContent = '◆ ' + money(m.totalBondedUsdc) + ' staked across ' + m.bondedServices + ' bonded service' + (m.bondedServices===1?'':'s') + (+m.totalSlashedUsdc>0 ? ' · ' + money(m.totalSlashedUsdc) + ' slashed from bad actors' : '');
   const svcs = d.services || [];
   $('count').textContent = svcs.length + ' live';
   $('grid').innerHTML = svcs.map(s => `

@@ -301,6 +301,8 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   r.get("/services", async (_req, res) => {
     const registered = store.listServices();
     const bonds = await Promise.all(registered.map((s) => A.serviceBondOf(s.payTo).catch(() => 0n)));
+    const totalBonded = bonds.reduce((a, b) => a + b, 0n);
+    const totalSlashed = await A.serviceBondTotalSlashed().catch(() => 0n);
     res.json({
       payTo,
       token: dep().usdc,
@@ -308,6 +310,11 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       settlement: SETTLEMENT_MODE,
       demoTabsEnabled: canMintDemo,
       serviceBond: dep().serviceBond, // stake here to bond your service (skin in the game)
+      marketplace: {
+        bondedServices: bonds.filter((b) => b > 0n).length,
+        totalBondedUsdc: fmtUsd(totalBonded), // real USDC staked across the marketplace
+        totalSlashedUsdc: fmtUsd(totalSlashed), // real USDC seized from bad services
+      },
       services: [
         ...Object.values(services).map((s) => ({
           id: s.id,
