@@ -35,6 +35,8 @@ export class Store {
   private data: StoreData;
   private pg: PgBackend | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
+  private backend: "file" | "postgres" = "file";
+  private ok = true; // for postgres: true only once the load actually succeeds
 
   constructor() {
     const url = process.env.DATABASE_URL;
@@ -43,6 +45,8 @@ export class Store {
       this.data = empty();
       try {
         this.pg = new PgBackend(url);
+        this.backend = "postgres";
+        this.ok = false;
         console.log("• store backend: Postgres (durable) — loading on init()");
       } catch (e) {
         console.error("Postgres init failed, falling back to file:", (e as Error).message);
@@ -59,10 +63,17 @@ export class Store {
     if (!this.pg) return;
     try {
       this.data = await this.pg.load();
+      this.ok = true;
       console.log(`• store loaded from Postgres: ${Object.keys(this.data.services).length} services, ${this.data.external.sales} external sales`);
     } catch (e) {
+      this.ok = false;
       console.error("Postgres load failed (continuing with empty state):", (e as Error).message);
     }
+  }
+
+  /** Health signal for /api/info — lets us verify durable persistence is actually live. */
+  health() {
+    return { backend: this.backend, ok: this.ok, services: Object.keys(this.data.services).length, externalSales: this.data.external.sales };
   }
 
   private readFile(): StoreData {

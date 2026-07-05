@@ -51,7 +51,7 @@ async function main() {
   });
 
   app.get("/api/info", (_req, res) =>
-    res.json({ network: process.env.AGORA_NETWORK || "localhost", agents: society.agents.length, tickMs: TICK_MS })
+    res.json({ network: process.env.AGORA_NETWORK || "localhost", agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
   );
   app.get("/api/snapshot", async (_req, res) => res.json(await eco.snapshot()));
   app.get("/api/job/:id", async (req, res) => {
