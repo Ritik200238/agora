@@ -1,8 +1,11 @@
 // Persistent store for the multi-tenant gateway — the service registry + cumulative real external volume.
-// Backend: an atomic JSON file (zero native deps, works on Render/local/Codespaces; survives restarts).
-// For scale, set DATABASE_URL and swap the backend behind this same interface (documented upgrade).
+// Two interchangeable backends behind ONE synchronous read interface (in-memory is the read model):
+//   • DATABASE_URL set  → Postgres (e.g. a free Supabase) — durable across Render redeploys. Load-on-boot,
+//                          write-behind on every mutation. Call `await store.init()` once before serving.
+//   • DATABASE_URL unset → an atomic JSON file (zero deps; fine for local/dev). Loaded synchronously.
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { PgBackend } from "./pgstore";
 
 export interface RegisteredService {
   id: string;
@@ -30,18 +33,48 @@ const empty = (): StoreData => ({ services: {}, external: { volumeUnits: "0", sa
 
 export class Store {
   private data: StoreData;
+  private pg: PgBackend | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
 
   constructor() {
-    try {
-      this.data = existsSync(FILE) ? { ...empty(), ...JSON.parse(readFileSync(FILE, "utf8")) } : empty();
-    } catch {
+    const url = process.env.DATABASE_URL;
+    if (url) {
+      // Postgres mode: data loads asynchronously via init(); start empty until then.
       this.data = empty();
+      try {
+        this.pg = new PgBackend(url);
+        console.log("• store backend: Postgres (durable) — loading on init()");
+      } catch (e) {
+        console.error("Postgres init failed, falling back to file:", (e as Error).message);
+        this.pg = null;
+        this.data = this.readFile();
+      }
+    } else {
+      this.data = this.readFile();
     }
   }
 
-  /** Atomic write (temp file + rename), debounced so bursts of calls don't thrash the disk. */
-  private persist() {
+  /** Load durable state into memory. Call once on boot before serving requests. No-op in file mode. */
+  async init(): Promise<void> {
+    if (!this.pg) return;
+    try {
+      this.data = await this.pg.load();
+      console.log(`• store loaded from Postgres: ${Object.keys(this.data.services).length} services, ${this.data.external.sales} external sales`);
+    } catch (e) {
+      console.error("Postgres load failed (continuing with empty state):", (e as Error).message);
+    }
+  }
+
+  private readFile(): StoreData {
+    try {
+      return existsSync(FILE) ? { ...empty(), ...JSON.parse(readFileSync(FILE, "utf8")) } : empty();
+    } catch {
+      return empty();
+    }
+  }
+
+  /** Atomic file write (temp + rename), debounced so bursts don't thrash the disk. File mode only. */
+  private persistFile() {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
@@ -56,10 +89,19 @@ export class Store {
     }, 250);
   }
 
+  private saveService(svc: RegisteredService) {
+    if (this.pg) this.pg.saveService(svc).catch((e) => console.error("pg saveService:", (e as Error).message));
+    else this.persistFile();
+  }
+  private saveExternal() {
+    if (this.pg) this.pg.saveExternal(this.data.external).catch((e) => console.error("pg saveExternal:", (e as Error).message));
+    else this.persistFile();
+  }
+
   // ---- registry ----
   registerService(svc: RegisteredService) {
     this.data.services[svc.id] = svc;
-    this.persist();
+    this.saveService(svc);
     return svc;
   }
   getService(id: string): RegisteredService | undefined {
@@ -75,14 +117,14 @@ export class Store {
     s.calls += 1;
     if (!success) s.failures += 1;
     else s.revenueUnits = (BigInt(s.revenueUnits) + priceUnits).toString();
-    this.persist();
+    this.saveService(s);
   }
   /** Record USDC stake slashed from a misbehaving service (for transparency in the marketplace). */
   recordSlash(id: string, units: bigint) {
     const s = this.data.services[id];
     if (!s) return;
     s.slashedUnits = (BigInt(s.slashedUnits ?? "0") + units).toString();
-    this.persist();
+    this.saveService(s);
   }
 
   // ---- persisted external traction (survives restarts) ----
@@ -92,7 +134,7 @@ export class Store {
   addExternal(units: bigint) {
     this.data.external.volumeUnits = (BigInt(this.data.external.volumeUnits) + units).toString();
     this.data.external.sales += 1;
-    this.persist();
+    this.saveExternal();
   }
 }
 
