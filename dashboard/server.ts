@@ -8,6 +8,7 @@ import { startChain } from "../test/harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "./gateway";
+import { mountHouseEndpoints, seedMarketplace } from "./seed";
 import { rateLimit } from "./ratelimit";
 import { store } from "./store";
 
@@ -70,11 +71,16 @@ async function main() {
   });
   app.post("/api/hijack", rateLimit(30), (_req, res) => res.json(eco.hijackAttempt("Nova-1")));
 
+  // real house-service endpoints (uuid/slug/json) the seeded listings proxy to over loopback
+  mountHouseEndpoints(app);
   // the PUBLIC pay-per-use gateway — real external agents/users pay tiny USDC per call (→ externalVolume)
   mountGateway(app, eco, society);
 
   await new Promise<void>((resolve) => app.listen(PORT, resolve));
   console.log(`\n🏛️  Agora dashboard live → http://localhost:${PORT}\n`);
+
+  // seed the marketplace with real, bonded house services so it's never empty (local/demo chain only)
+  await seedMarketplace(society, PORT);
 
   const pushSnapshot = async () => {
     const snap = await eco.snapshot();
