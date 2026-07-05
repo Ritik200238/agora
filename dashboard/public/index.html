@@ -188,6 +188,8 @@
   @media (max-width:560px){
     .stats { grid-template-columns:repeat(2,1fr); }
     thead th.hide, tbody td.hide { display:none; }
+    .main .panel { overflow-x:auto; }      /* leaderboard never clips on narrow phones */
+    .intro .introcta { gap:8px; } .cta-primary, .cta-ghost { padding:10px 14px; font-size:13px; }
   }
 </style>
 </head>
