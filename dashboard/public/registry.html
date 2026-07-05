@@ -47,6 +47,8 @@
   .badge.TRUSTED { color:var(--green); border-color:#B8E6D2; }
   .badge.NEUTRAL { color:var(--label); }
   .badge.RISKY, .badge.AVOID { color:var(--rust); border-color:#E7C3AE; }
+  .badge.BONDED { color:var(--green); border-color:#B8E6D2; background:#F0FBF6; font-weight:600; }
+  .badge.SLASHED { color:var(--rust); border-color:#E7C3AE; }
   .svc .id { font-family:var(--mono); font-size:10px; color:var(--mute); margin-top:8px; }
   .seller { background:var(--ink); color:var(--paper); border-radius:14px; padding:28px; margin-top:16px; }
   .seller h3 { font-size:20px; font-weight:700; letter-spacing:-.02em; }
@@ -90,6 +92,9 @@
   "priceUsdc": 0.002, "desc": "what it does",
   "payTo": "0xYourWallet", "exampleInput": { "text": "hi" }
 }'</code>
+    <p style="margin-top:16px">Want to stand out? <span class="accent">◆ Stake USDC</span> behind your service in the on-chain
+      <strong>ServiceBond</strong> — it earns a <strong>BONDED</strong> badge and a trust boost. The catch that makes it
+      mean something: a service that keeps failing gets its stake <strong>slashed</strong>. Trust you can't fake.</p>
   </div>
 
   <div class="foot lab">Agents plug in via MCP: <span style="color:var(--ink2)">npx agora-pay-mcp</span> · <a href="https://github.com/Ritik200238/agora">source</a></div>
@@ -109,7 +114,9 @@ fetch('/x402/services').then(r=>r.json()).then(d => {
       <div class="meta">
         <span class="badge b">${s.kind || 'service'}</span>
         <span class="badge ${s.verdict || 'NEUTRAL'}">${s.verdict || '—'}${s.trustScore!=null?' · '+s.trustScore:''}</span>
+        ${s.bonded ? `<span class="badge BONDED" title="USDC staked on-chain behind this service">◆ bonded${s.bondUsdc!=null && +s.bondUsdc>0 ? ' '+money(s.bondUsdc) : ''}</span>` : ''}
         ${s.stats && s.stats.calls != null ? `<span class="badge">${s.stats.calls} calls</span>` : ''}
+        ${s.stats && +(s.stats.slashedUsdc||0) > 0 ? `<span class="badge SLASHED" title="stake slashed for failures">slashed ${money(s.stats.slashedUsdc)}</span>` : ''}
       </div>
       <div class="id">${s.id}</div>
     </div>`).join('') || '<div class="empty">No services yet — be the first to list one below.</div>';

@@ -211,17 +211,26 @@ async function proxyCall(url: string, input: any): Promise<{ ok: boolean; data?:
     return { ok: false, error: String((e as Error)?.message ?? e).slice(0, 120) };
   }
 }
-/** Trust for a registered service, derived from its real ledger (success rate, volume, age). */
-function registeredTrust(s: RegisteredService): { trustScore: number; verdict: string } {
-  if (s.calls === 0) return { trustScore: 50, verdict: "NEUTRAL" }; // unproven — neutral
-  const successRate = (s.calls - s.failures) / s.calls;
-  const ageDays = (Date.now() - new Date(s.createdAt).getTime()) / 86_400_000;
-  let t = 40 + successRate * 40 + Math.min(s.calls, 100) * 0.15 + Math.min(ageDays, 20);
+/** Trust for a registered service from its real ledger (success rate, volume, age) + on-chain bonded stake.
+ *  The bond is the moat: staked USDC is skin in the game a plain rating can't fake, and it lifts an
+ *  otherwise-unproven service above neutral because a bad actor would lose that money to a slash. */
+function registeredTrust(s: RegisteredService, bondUnits: bigint = 0n): { trustScore: number; verdict: string; bonded: boolean } {
+  const bondedUsd = Number(fmtUsd(bondUnits));
+  const bondBoost = Math.min(bondedUsd, 50) * 0.5; // up to +25 for $50+ staked behind the service
+  let t: number;
+  if (s.calls === 0) {
+    t = 50 + bondBoost; // unproven: real stake substitutes for a track record
+  } else {
+    const successRate = (s.calls - s.failures) / s.calls;
+    const ageDays = (Date.now() - new Date(s.createdAt).getTime()) / 86_400_000;
+    t = 40 + successRate * 40 + Math.min(s.calls, 100) * 0.15 + Math.min(ageDays, 20) + bondBoost;
+  }
   t = Math.max(0, Math.min(100, Math.round(t)));
-  return { trustScore: t, verdict: t >= 75 ? "TRUSTED" : t >= 40 ? "NEUTRAL" : t >= 15 ? "RISKY" : "AVOID" };
+  return { trustScore: t, verdict: t >= 75 ? "TRUSTED" : t >= 40 ? "NEUTRAL" : t >= 15 ? "RISKY" : "AVOID", bonded: bondedUsd > 0 };
 }
-/** Public (buyer-facing) view of a registered service. */
-function publicService(s: RegisteredService) {
+/** Public (buyer-facing) view of a registered service, including its live on-chain bond. */
+function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
+  const slashed = BigInt(s.slashedUnits ?? "0");
   return {
     id: s.id,
     kind: "registered" as const,
@@ -231,13 +240,15 @@ function publicService(s: RegisteredService) {
     desc: s.desc,
     example: s.exampleInput,
     payTo: s.payTo,
+    bondUsdc: fmtUsd(bondUnits), // real USDC the seller has staked behind this service
     stats: {
       calls: s.calls,
       failures: s.failures,
       revenueUsdc: fmtUsd(BigInt(s.revenueUnits)),
+      slashedUsdc: fmtUsd(slashed),
       successRate: s.calls ? +(((s.calls - s.failures) / s.calls) * 100).toFixed(1) : null,
     },
-    ...registeredTrust(s),
+    ...registeredTrust(s, bondUnits),
   };
 }
 
@@ -260,16 +271,42 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   const consumed = new Set<string>(); // per-tx replay protection for the raw x402 path
   const tabs = new Map<string, Tab>();
 
+  // When a bonded service turns out to be genuinely bad — ≥50% of its calls fail over a meaningful sample —
+  // the gateway slashes a penalty from its on-chain stake to the treasury. The failure gate (≥4 calls) means a
+  // single transient blip never slashes; a service that's actually broken bleeds until the seller fixes or
+  // unbonds it. The buyer is never charged for a failure regardless — this just gives the bond real teeth.
+  async function maybeSlashBadService(svc: RegisteredService, price: bigint) {
+    try {
+      const fresh = store.getService(svc.id);
+      if (!fresh || fresh.calls < 4) return null;
+      if (fresh.failures / fresh.calls < 0.5) return null;
+      const bond = await A.serviceBondOf(fresh.payTo).catch(() => 0n);
+      if (bond <= 0n) return null;
+      const penalty = price * 100n < bond ? price * 100n : bond; // 100× the call price, capped at the stake
+      if (penalty <= 0n) return null;
+      await A.serviceBondSlash(faucet, fresh.payTo, penalty, `${fresh.failures}/${fresh.calls} calls failed`);
+      store.recordSlash(fresh.id, penalty);
+      console.log(`⚔️  slashed ${fmtUsd(penalty)} USDC from failing service ${fresh.id} (${fresh.failures}/${fresh.calls} failed)`);
+      return { slashedUsdc: fmtUsd(penalty), bondRemainingUsdc: fmtUsd(bond - penalty), reason: `${fresh.failures}/${fresh.calls} calls failed` };
+    } catch (e) {
+      console.error("service slash skipped:", (e as Error)?.message);
+      return null;
+    }
+  }
+
   const r = express.Router();
 
-  // --- discovery: built-in + registered third-party services (each with a trust verdict) ---
-  r.get("/services", (_req, res) =>
+  // --- discovery: built-in + registered third-party services (each with a trust verdict + live bond) ---
+  r.get("/services", async (_req, res) => {
+    const registered = store.listServices();
+    const bonds = await Promise.all(registered.map((s) => A.serviceBondOf(s.payTo).catch(() => 0n)));
     res.json({
       payTo,
       token: dep().usdc,
       chainId: activeChain.id,
       settlement: SETTLEMENT_MODE,
       demoTabsEnabled: canMintDemo,
+      serviceBond: dep().serviceBond, // stake here to bond your service (skin in the game)
       services: [
         ...Object.values(services).map((s) => ({
           id: s.id,
@@ -278,13 +315,14 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
           priceUnits: s.price.toString(),
           desc: s.desc,
           example: s.example,
+          bonded: true, // house services are backed by the Agora operator
           trustScore: 90,
           verdict: "TRUSTED",
         })),
-        ...store.listServices().map(publicService),
+        ...registered.map((s, i) => publicService(s, bonds[i])),
       ],
-    })
-  );
+    });
+  });
 
   // --- SELLER DOOR: any dev lists their own HTTP service. Paid DIRECTLY on-chain per successful call. ---
   r.post("/services/register", rateLimit(10), (req, res) => {
@@ -316,16 +354,20 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       ok: true,
       service: publicService(svc),
       callWith: `POST /x402/tab/<tabId>/call  { "service": "${id}", "input": ... }`,
-      note: "You're paid directly on-chain to payTo on every SUCCESSFUL call — no custody, no withdrawal. Buyers aren't charged if your endpoint fails.",
+      bondWith: { contract: dep().serviceBond, method: "bond(uint256 usdcUnits) — approve first, from payTo", why: "stake USDC to earn a BONDED badge + trust boost; a service that repeatedly fails gets slashed" },
+      note: "You're paid directly on-chain to payTo on every SUCCESSFUL call — no custody, no withdrawal. Buyers aren't charged if your endpoint fails. Bond USDC to stand out as trustworthy.",
     });
   });
 
-  // service detail (built-in or registered) + trust
-  r.get("/services/:id", (req, res) => {
+  // service detail (built-in or registered) + trust + live on-chain bond
+  r.get("/services/:id", async (req, res) => {
     const reg = store.getService(req.params.id);
-    if (reg) return res.json(publicService(reg));
+    if (reg) {
+      const bond = await A.serviceBondOf(reg.payTo).catch(() => 0n);
+      return res.json(publicService(reg, bond));
+    }
     const b = services[req.params.id];
-    if (b) return res.json({ id: b.id, kind: "builtin", priceUsdc: fmtUsd(b.price), desc: b.desc, example: b.example, trustScore: 90, verdict: "TRUSTED" });
+    if (b) return res.json({ id: b.id, kind: "builtin", priceUsdc: fmtUsd(b.price), desc: b.desc, example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" });
     return res.status(404).json({ error: "unknown service" });
   });
 
@@ -383,7 +425,8 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       const proxied = await proxyCall(registered!.url, req.body?.input);
       if (!proxied.ok) {
         store.recordCall(registered!.id, price, false); // a failure dents the seller's trust score
-        return res.status(502).json({ error: "seller service failed — you were NOT charged: " + proxied.error, charged: false });
+        const sellerSlashed = await maybeSlashBadService(registered!, price); // …and, if it's bonded + truly bad, its stake
+        return res.status(502).json({ error: "seller service failed — you were NOT charged: " + proxied.error, charged: false, ...(sellerSlashed ? { sellerSlashed } : {}) });
       }
       result = proxied.data;
     }

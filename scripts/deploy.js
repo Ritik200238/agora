@@ -47,17 +47,25 @@ async function deployAll() {
 
   const lendingPool = await dep("LendingPool", usdcAddr, identity.target, reputation.target, bond.target);
 
+  // Marketplace-layer collateral: sellers stake behind their pay-per-use service; the gateway can slash a
+  // misbehaving one to the treasury. The gateway operator (the deployer key, which the gateway signs with) is
+  // the sole manager. Override GATEWAY_OPERATOR for Arc if the live gateway runs under a different key.
+  const serviceBond = await dep("ServiceBond", usdcAddr, treasury);
+  const gatewayOperator = process.env.GATEWAY_OPERATOR || deployer.address;
+
   // Authority: the JobBoard + LendingPool may report reputation + lock/slash bonds; JobBoard writes validations.
   await (await reputation.setReporter(jobBoard.target, true)).wait();
   await (await bond.setManager(jobBoard.target, true)).wait();
   await (await validation.initialize(jobBoard.target)).wait();
   await (await reputation.setReporter(lendingPool.target, true)).wait();
   await (await bond.setManager(lendingPool.target, true)).wait();
+  await (await serviceBond.setManager(gatewayOperator, true)).wait();
 
   // Lock it down: renounce ownership so NO key (incl. the deployer) can add a rogue reporter/manager
   // and forge reputation or drain bonds. Authority is now immutable.
   await (await reputation.renounceOwnership()).wait();
   await (await bond.renounceOwnership()).wait();
+  await (await serviceBond.renounceOwnership()).wait();
 
   const out = {
     network: network.name,
@@ -71,6 +79,8 @@ async function deployAll() {
     bond: bond.target,
     jobBoard: jobBoard.target,
     lendingPool: lendingPool.target,
+    serviceBond: serviceBond.target,
+    gatewayOperator,
     deployer: deployer.address,
   };
 
