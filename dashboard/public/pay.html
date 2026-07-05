@@ -138,6 +138,7 @@
     <div class="big" id="tabBig" style="display:none">$0.00 <span style="font-size:14px;font-weight:400;color:#9CA3AF">/ <span id="tabCap">$0.10</span> cap</span></div>
     <div class="capbar" id="capbarWrap" style="display:none"><div class="capfill" id="capfill"></div></div>
     <div class="capmeta lab" id="capMeta" style="display:none"><span id="capSpent">$0 spent</span><span id="capLeft">$0.10 left</span></div>
+    <div class="lab" id="tabErr" role="alert" style="color:var(--rust);margin-top:10px;display:none"></div>
   </div>
 
   <div class="sect-h"><h2>Services</h2><span class="lab">Pay-per-call · USDC</span></div>
@@ -155,9 +156,8 @@ const money = (x) => '$' + (+x).toFixed(x < 0.01 ? 6 : 2);
 let TAB = null;      // { tabId, capUsdc }
 let SERVICES = [];
 
-// friendly labels for the built-in services (registered third-party services carry their own name)
-const LABELS = { feed:'Data feed', price:'Crypto price', fx:'Currency (FX)', weather:'Weather', email:'Email check', trust:'Trust oracle', hash:'Keccak-256', stats:'Text stats', compute:'Compute' };
-const svcName = (s) => LABELS[s.id] || s.name || s.id;
+// the gateway supplies a friendly `name` for every service (built-in + third-party) — single source of truth
+const svcName = (s) => s.name || s.id;
 const esc = (v) => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fieldId = (id,k) => 'f_' + String(id).replace(/[^a-zA-Z0-9_]/g,'') + '_' + String(k).replace(/[^a-zA-Z0-9_]/g,'');
 
@@ -205,11 +205,12 @@ async function load(){
         <button class="btn go" onclick="callSvc('${esc(s.id)}')">Call &amp; pay ${money(s.priceUsdc)} →</button>
         <div class="out" id="out_${esc(s.id)}"></div>
       </div>`).join('') || '<div class="lab" style="grid-column:1/-1">No services available right now.</div>';
-  } catch(e){ $('net').textContent = 'gateway offline'; $('svcs').innerHTML = '<div class="lab" style="grid-column:1/-1">Gateway offline — please refresh to retry.</div>'; }
+  } catch(e){ $('net').textContent = 'gateway offline'; $('svcs').innerHTML = '<div class="lab" style="grid-column:1/-1">Gateway offline — <a href="#" onclick="load();return false" style="color:var(--green)">retry</a>.</div>'; }
 }
 
 async function openTab(){
   $('openBtn').disabled = true; $('openBtn').textContent = 'Opening…';
+  $('tabErr').style.display = 'none';
   try {
     const cap = Math.min(Math.max(+$('capInput').value || 0.1, 0.001), 5);
     const t = await (await fetch('/x402/tab', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ capUsdc: cap }) })).json();
@@ -220,7 +221,7 @@ async function openTab(){
     $('tabAddr').textContent = t.address;
     $('tabBig').style.display = ''; $('capbarWrap').style.display = ''; $('capMeta').style.display = '';
     updateTab(0, +t.capUsdc);
-  } catch(e){ alert('Could not open tab: ' + e.message); }
+  } catch(e){ const el = $('tabErr'); el.textContent = 'Could not open tab: ' + e.message; el.style.display = ''; }
   $('openBtn').disabled = false; $('openBtn').textContent = 'Open tab';
 }
 
@@ -237,6 +238,8 @@ async function callSvc(id){
   const out = $('out_' + id);
   if (!TAB){ out.className = 'out show err'; out.textContent = 'Open a tab first ↑'; return; }
   const svc = SERVICES.find(s => s.id === id);
+  const btn = document.querySelector('.svc[data-id="' + id + '"] .go');
+  if (btn) btn.disabled = true; // guard against double-pay while the call is in flight
   out.className = 'out show'; out.textContent = 'Paying ' + money(svc.priceUsdc) + ' & calling…';
   try {
     const res = await (await fetch(`/x402/tab/${TAB.tabId}/call`, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ service:id, input: buildInput(svc) }) })).json();
@@ -246,6 +249,7 @@ async function callSvc(id){
     updateTab(+res.tab.spentUsdc, +res.tab.capUsdc);
     addBill(id, res.paidUsdc, res.tx);
   } catch(e){ out.className = 'out show err'; out.textContent = e.message; }
+  finally { if (btn) btn.disabled = false; }
 }
 
 let BILL = [];

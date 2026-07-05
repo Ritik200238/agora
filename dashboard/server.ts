@@ -8,6 +8,7 @@ import { startChain } from "../test/harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "./gateway";
+import { renderNotFound, publicBase } from "./pages";
 import { mountHouseEndpoints, seedMarketplace } from "./seed";
 import { rateLimit } from "./ratelimit";
 import { store } from "./store";
@@ -76,6 +77,12 @@ async function main() {
   mountHouseEndpoints(app);
   // the PUBLIC pay-per-use gateway — real external agents/users pay tiny USDC per call (→ externalVolume)
   mountGateway(app, eco, society);
+
+  // branded 404 for any unmatched route (no ugly "Cannot GET /x") — must be last
+  app.use((req, res) => {
+    if (req.path.startsWith("/api/")) return res.status(404).json({ error: "not found" });
+    res.status(404).type("html").send(renderNotFound(publicBase(req)));
+  });
 
   await new Promise<void>((resolve) => app.listen(PORT, resolve));
   console.log(`\n🏛️  Agora dashboard live → http://localhost:${PORT}\n`);

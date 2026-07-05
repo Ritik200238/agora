@@ -117,11 +117,16 @@ ${esc(JSON.stringify({ service: s.id, input: example }, null, 2))}</pre>
   return page(head, body);
 }
 
-/** A branded 404 for an unknown service id. */
-export function renderNotFound(base: string): string {
+/** A branded 404 — generic by default, or with a service-specific heading/body. */
+export function renderNotFound(base: string, opts: { heading?: string; body?: string } = {}): string {
+  const heading = opts.heading ?? "Page not found";
+  const body = opts.body ?? "That page doesn't exist. Head to the marketplace or watch the live economy.";
   return page(
-    `<title>Service not found · Agora</title><meta name="robots" content="noindex">`,
-    `<h1>No such service</h1><p class="desc">This service id isn't listed on the marketplace.</p><a class="cta" href="/registry">Browse live services →</a>`
+    `<title>${esc(heading)} · Agora</title><meta name="robots" content="noindex">`,
+    `<h1>${esc(heading)}</h1>
+     <p class="desc">${esc(body)}</p>
+     <a class="cta" href="/registry">Browse the marketplace →</a>
+     <p class="lab" style="margin-top:18px"><a href="/" style="color:var(--green)">← Live economy</a> &nbsp;·&nbsp; <a href="/pay" style="color:var(--green)">Pay-per-use</a></p>`
   );
 }
 

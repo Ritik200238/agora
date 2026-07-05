@@ -73,11 +73,12 @@
   :focus-visible { outline:2px solid var(--green); outline-offset:2px; border-radius:5px; }
   .demorow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
   .demorow .dlab { color:var(--mute); }
+  @media (prefers-reduced-motion: reduce){ *,*::before,*::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; } }
 
   /* ---------- hero + stats ---------- */
   .top { display:grid; grid-template-columns:.92fr 1.28fr; gap:52px; align-items:start; }
-  .hero .gdp { font-size:clamp(54px,7.6vw,80px); font-weight:700; letter-spacing:-.045em; line-height:.92;
-               color:var(--ink); margin:16px 0 18px; }
+  .hero .gdp { font-size:clamp(44px,6vw,64px); font-weight:700; letter-spacing:-.04em; line-height:.94;
+               color:var(--ink); margin:14px 0 16px; }
   .hero .sub { display:flex; gap:8px; align-items:flex-start; max-width:340px; }
   .hero .sub .ldot { margin-top:4px; flex:0 0 auto; }
   .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
