@@ -118,7 +118,7 @@ fetch('/x402/services').then(r=>r.json()).then(d => {
         ${s.stats && s.stats.calls != null ? `<span class="badge">${s.stats.calls} calls</span>` : ''}
         ${s.stats && +(s.stats.slashedUsdc||0) > 0 ? `<span class="badge SLASHED" title="stake slashed for failures">slashed ${money(s.stats.slashedUsdc)}</span>` : ''}
       </div>
-      <div class="id">${s.id}</div>
+      <div class="id"><a href="/s/${encodeURIComponent(s.id)}" style="color:var(--green)">${s.id} · open page →</a></div>
     </div>`).join('') || '<div class="empty">No services yet — be the first to list one below.</div>';
 }).catch(() => { $('grid').innerHTML = '<div class="empty">Marketplace offline.</div>'; $('net').textContent='offline'; });
 </script>
