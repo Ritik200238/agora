@@ -109,6 +109,14 @@ async function validateEmail(input: any) {
   return { email, valid: true, domain, hasMx, deliverable: hasMx, mx: mx.sort((a, b) => a.priority - b.priority).slice(0, 3).map((r) => r.exchange) };
 }
 
+// Friendly display names for the built-in services — the single source of truth so every surface
+// (/pay, /registry, /s/:id, SSR) shows the same label instead of raw ids.
+const BUILTIN_LABELS: Record<string, string> = {
+  feed: "Data feed", price: "Crypto price", fx: "Currency (FX)", weather: "Weather", email: "Email check",
+  trust: "Trust oracle", hash: "Keccak-256", stats: "Text stats", compute: "Compute",
+};
+const builtinName = (id: string) => BUILTIN_LABELS[id] || id;
+
 // ---- the real, useful services the gateway sells (pay-per-call, rule-based, no API keys) ----
 interface Service {
   id: string;
@@ -448,6 +456,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
         ...Object.values(services).map((s) => ({
           id: s.id,
           kind: "builtin" as const,
+          name: builtinName(s.id),
           priceUsdc: fmtUsd(s.price),
           priceUnits: s.price.toString(),
           desc: s.desc,
@@ -506,7 +515,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       return res.json(publicService(reg, bond));
     }
     const b = services[req.params.id];
-    if (b) return res.json({ id: b.id, kind: "builtin", priceUsdc: fmtUsd(b.price), desc: b.desc, example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" });
+    if (b) return res.json({ id: b.id, kind: "builtin", name: builtinName(b.id), priceUsdc: fmtUsd(b.price), desc: b.desc, example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" });
     return res.status(404).json({ error: "unknown service" });
   });
 
@@ -736,13 +745,13 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       return publicService(reg, bond) as PageService;
     }
     const b = services[id];
-    if (b) return { id: b.id, kind: "builtin", name: b.id[0].toUpperCase() + b.id.slice(1), desc: b.desc, priceUsdc: fmtUsd(b.price), example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" };
+    if (b) return { id: b.id, kind: "builtin", name: builtinName(b.id), desc: b.desc, priceUsdc: fmtUsd(b.price), example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" };
     return null;
   }
   app.get("/s/:id", rateLimit(120), async (req, res) => {
     const base = publicBase(req);
     const svc = await resolvePageService(String(req.params.id));
-    if (!svc) return res.status(404).type("html").send(renderNotFound(base));
+    if (!svc) return res.status(404).type("html").send(renderNotFound(base, { heading: "No such service", body: "This service isn't listed on the marketplace." }));
     res.type("html").send(renderServicePage(svc, base));
   });
   app.get("/sitemap.xml", (req, res) => {

@@ -22,6 +22,8 @@
   .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--label); }
   .wrap { max-width:1040px; margin:0 auto; padding:40px 30px 72px; }
   a { color:var(--green); text-decoration:none; } a:hover { text-decoration:underline; }
+  :focus-visible { outline:2px solid var(--green); outline-offset:2px; border-radius:5px; }
+  @media (prefers-reduced-motion: reduce){ *,*::before,*::after{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
   header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .brand { display:flex; align-items:center; gap:12px; }
   .brand .word { font-size:23px; font-weight:700; letter-spacing:-.04em; } .brand .word .dot { color:var(--green); }
@@ -105,32 +107,36 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const money = (x) => '$' + (+x).toFixed(+x < 0.01 ? 6 : 2);
-const LABELS = { feed:'Data feed', price:'Crypto price', fx:'Currency (FX)', weather:'Weather', email:'Email check', trust:'Trust oracle', hash:'Keccak-256', stats:'Text stats', compute:'Compute' };
-const svcName = (s) => LABELS[s.id] || s.name || s.id;
-fetch('/x402/services').then(r=>r.json()).then(d => {
-  $('net').textContent = (d.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM') + ' · pay-to ' + String(d.payTo).slice(0,6) + '…' + String(d.payTo).slice(-4);
-  const m = d.marketplace, ins = d.insurance;
-  const bits = [];
-  if (m && +m.totalBondedUsdc > 0) bits.push('◆ ' + money(m.totalBondedUsdc) + ' staked across ' + m.bondedServices + ' bonded service' + (m.bondedServices===1?'':'s'));
-  if (ins && +ins.poolUsdc > 0) bits.push('🛡️ ' + money(ins.poolUsdc) + ' buyer-protection fund' + (+ins.paidOutUsdc>0 ? ' (' + money(ins.paidOutUsdc) + ' refunded)' : ''));
-  if (m && +m.totalSlashedUsdc > 0) bits.push(money(m.totalSlashedUsdc) + ' slashed from bad actors');
-  if (bits.length) $('stake').innerHTML = bits.join(' &nbsp;·&nbsp; ');
-  const svcs = d.services || [];
-  $('count').textContent = svcs.length + ' live';
-  $('grid').innerHTML = svcs.map(s => `
-    <div class="svc">
-      <div class="top"><span class="name">${svcName(s)}</span><span class="price">${money(s.priceUsdc)}</span></div>
-      <div class="desc">${s.desc || ''}</div>
-      <div class="meta">
-        <span class="badge b">${s.kind || 'service'}</span>
-        <span class="badge ${s.verdict || 'NEUTRAL'}">${s.verdict || '—'}${s.trustScore!=null?' · '+s.trustScore:''}</span>
-        ${s.bonded ? `<span class="badge BONDED" title="USDC staked on-chain behind this service">◆ bonded${s.bondUsdc!=null && +s.bondUsdc>0 ? ' '+money(s.bondUsdc) : ''}</span>` : ''}
-        ${s.stats && s.stats.calls != null ? `<span class="badge">${s.stats.calls} calls</span>` : ''}
-        ${s.stats && +(s.stats.slashedUsdc||0) > 0 ? `<span class="badge SLASHED" title="stake slashed for failures">slashed ${money(s.stats.slashedUsdc)}</span>` : ''}
-      </div>
-      <div class="id"><a href="/s/${encodeURIComponent(s.id)}" style="color:var(--green)">${s.id} · open page →</a></div>
-    </div>`).join('') || '<div class="empty">No services yet — be the first to list one below.</div>';
-}).catch(() => { $('grid').innerHTML = '<div class="empty">Marketplace offline.</div>'; $('net').textContent='offline'; });
+const svcName = (s) => s.name || s.id;
+const esc = (v) => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function load(){
+  fetch('/x402/services').then(r=>r.json()).then(d => {
+    $('net').textContent = (d.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM') + ' · pay-to ' + String(d.payTo).slice(0,6) + '…' + String(d.payTo).slice(-4);
+    const m = d.marketplace, ins = d.insurance;
+    const bits = [];
+    if (m && +m.totalBondedUsdc > 0) bits.push('◆ ' + money(m.totalBondedUsdc) + ' staked across ' + m.bondedServices + ' bonded service' + (m.bondedServices===1?'':'s'));
+    if (ins && +ins.poolUsdc > 0) bits.push('🛡️ ' + money(ins.poolUsdc) + ' buyer-protection fund' + (+ins.paidOutUsdc>0 ? ' (' + money(ins.paidOutUsdc) + ' refunded)' : ''));
+    if (m && +m.totalSlashedUsdc > 0) bits.push(money(m.totalSlashedUsdc) + ' slashed from bad actors');
+    $('stake').innerHTML = bits.join(' &nbsp;·&nbsp; ');
+    const svcs = d.services || [];
+    $('count').textContent = svcs.length + ' live';
+    $('grid').innerHTML = svcs.map(s => `
+      <div class="svc">
+        <div class="top"><span class="name">${esc(svcName(s))}</span><span class="price">${money(s.priceUsdc)}</span></div>
+        <div class="desc">${esc(s.desc || '')}</div>
+        <div class="meta">
+          <span class="badge b">${esc(s.kind || 'service')}</span>
+          <span class="badge ${esc(s.verdict || 'NEUTRAL')}">${esc(s.verdict || '—')}${s.trustScore!=null?' · '+s.trustScore:''}</span>
+          ${s.bonded ? `<span class="badge BONDED" title="USDC staked on-chain behind this service">◆ bonded${s.bondUsdc!=null && +s.bondUsdc>0 ? ' '+money(s.bondUsdc) : ''}</span>` : ''}
+          ${s.stats && s.stats.calls != null ? `<span class="badge">${s.stats.calls} calls</span>` : ''}
+          ${s.stats && +(s.stats.slashedUsdc||0) > 0 ? `<span class="badge SLASHED" title="stake slashed for failures">slashed ${money(s.stats.slashedUsdc)}</span>` : ''}
+        </div>
+        <div class="id"><a href="/s/${encodeURIComponent(s.id)}" style="color:var(--green)">${esc(s.id)} · open page →</a></div>
+      </div>`).join('') || '<div class="empty">No services yet — be the first to list one below.</div>';
+  }).catch(() => { if (!$('grid').querySelector('.svc')) { $('grid').innerHTML = '<div class="empty">Marketplace offline — <a href="#" onclick="load();return false" style="color:var(--green)">retry</a>.</div>'; $('net').textContent='offline'; } });
+}
+load();
+setInterval(load, 20000); // live-update: new listings / bonds / the buyer-protection fund appear without a reload
 </script>
 </body>
 </html>
