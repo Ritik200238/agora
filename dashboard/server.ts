@@ -30,6 +30,7 @@ async function main() {
   app.use(rateLimit(300)); // global abuse/DoS guard: 300 req/min/IP
   app.use(express.static(join(__dirname, "public")));
   app.get("/pay", (_req, res) => res.sendFile(join(__dirname, "public", "pay.html")));
+  app.get("/registry", (_req, res) => res.sendFile(join(__dirname, "public", "registry.html")));
 
   const sseClients: Response[] = [];
   app.get("/api/events", (req, res) => {

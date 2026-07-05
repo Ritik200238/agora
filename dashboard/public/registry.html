@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agora — the agent service marketplace</title>
+<meta name="description" content="Discover pay-per-use services for AI agents on Arc — priced in sub-cent USDC, each with an on-chain trust verdict. List your own service and get paid per call." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath d='M2.2 9V2.2H9M21 2.2H27.8V9M27.8 21V27.8H21M9 27.8H2.2V21' stroke='%230A0A0A' stroke-width='2.3' fill='none'/%3E%3Crect x='8.4' y='16.2' width='5.4' height='5.4' fill='%23059669'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:#FAFAF7; --card:#FFFFFF; --faint:#F8FAFC;
+    --ink:#0A0A0A; --ink2:#1D1D1F; --label:#6B7280; --mute:#9CA3AF;
+    --line:#E5E7EB; --line2:#EFEFEA; --green:#059669; --green2:#10B981; --rust:#C2410C;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--paper); color:var(--ink); font-family:var(--disp); line-height:1.5; }
+  .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--label); }
+  .wrap { max-width:1040px; margin:0 auto; padding:40px 30px 72px; }
+  a { color:var(--green); text-decoration:none; } a:hover { text-decoration:underline; }
+  header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .brand .word { font-size:23px; font-weight:700; letter-spacing:-.04em; } .brand .word .dot { color:var(--green); }
+  .nav { display:flex; gap:10px; }
+  .pill { font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:7px; padding:9px 13px; color:var(--ink2); background:var(--card); }
+  .pill:hover { background:var(--faint); text-decoration:none; }
+  .hero { margin:34px 0 24px; }
+  .hero h1 { font-size:clamp(28px,5vw,44px); font-weight:700; letter-spacing:-.04em; line-height:1.05; }
+  .hero h1 .accent { color:var(--green); }
+  .hero p { margin-top:14px; font-size:16px; color:var(--ink2); max-width:64ch; }
+  .rule { height:1px; background:var(--line); border:0; margin:24px 0; }
+  .sect-h { display:flex; align-items:baseline; justify-content:space-between; margin:26px 0 14px; }
+  .sect-h h2 { font-size:18px; font-weight:600; letter-spacing:-.01em; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+  .svc { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  .svc .top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .svc .name { font-size:16px; font-weight:600; }
+  .svc .price { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--green); }
+  .svc .desc { font-size:13.5px; color:var(--ink2); margin-top:8px; min-height:36px; }
+  .svc .meta { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+  .badge { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:5px; padding:3px 7px; color:var(--label); }
+  .badge.b { color:var(--ink2); }
+  .badge.TRUSTED { color:var(--green); border-color:#B8E6D2; }
+  .badge.NEUTRAL { color:var(--label); }
+  .badge.RISKY, .badge.AVOID { color:var(--rust); border-color:#E7C3AE; }
+  .svc .id { font-family:var(--mono); font-size:10px; color:var(--mute); margin-top:8px; }
+  .seller { background:var(--ink); color:var(--paper); border-radius:14px; padding:28px; margin-top:16px; }
+  .seller h3 { font-size:20px; font-weight:700; letter-spacing:-.02em; }
+  .seller p { margin-top:10px; color:#C9CDD3; font-size:14.5px; max-width:60ch; }
+  .seller code { display:block; font-family:var(--mono); font-size:12px; background:#161616; border:1px solid #2A2A2A; border-radius:8px; padding:14px 16px; margin-top:14px; color:#E7E7E1; white-space:pre-wrap; overflow-x:auto; }
+  .seller .accent { color:var(--green2); }
+  .empty { color:var(--mute); font-size:14px; padding:16px 0; }
+  .foot { margin-top:30px; }
+  @media (max-width:680px){ .grid { grid-template-columns:1fr; } .wrap { padding:28px 20px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 30 30" fill="none" aria-hidden="true"><path d="M2.2 9V2.2H9M21 2.2H27.8V9M27.8 21V27.8H21M9 27.8H2.2V21" stroke="#0A0A0A" stroke-width="2.3"/><rect x="8.4" y="16.2" width="5.4" height="5.4" fill="#059669"/></svg>
+      <div><div class="word">agora<span class="dot">.</span></div><div class="lab">Service marketplace</div></div>
+    </div>
+    <div class="nav"><a class="pill" href="/pay">Pay-per-use →</a><a class="pill" href="/">Live economy →</a></div>
+  </header>
+
+  <div class="hero">
+    <h1>The marketplace where <span class="accent">agents pay agents.</span></h1>
+    <p>Pay-per-call services for AI agents, priced in <strong>sub-cent USDC</strong> on Arc — each with an
+      on-chain <strong>trust verdict</strong>. No subscriptions, no accounts. Plug your agent in with one MCP line,
+      or list your own service and get paid per call.</p>
+    <div class="lab" id="net" style="margin-top:12px">loading…</div>
+  </div>
+
+  <div class="sect-h"><h2>Services</h2><span class="lab" id="count">—</span></div>
+  <div class="grid" id="grid"><div class="empty">Loading services…</div></div>
+
+  <hr class="rule" style="margin:34px 0" />
+
+  <div class="seller">
+    <h3>Have an API or tool? <span class="accent">Get paid per call.</span></h3>
+    <p>List any HTTP endpoint in one call. You're paid <strong>directly on-chain</strong> to your wallet on every
+      successful call — sub-cent, no Stripe, no KYC, no subscription code. Below $0.01 a call, cards literally can't do this.</p>
+    <code>curl -XPOST $AGORA/x402/services/register -H content-type:application/json -d '{
+  "name": "My API", "url": "https://my-server/endpoint",
+  "priceUsdc": 0.002, "desc": "what it does",
+  "payTo": "0xYourWallet", "exampleInput": { "text": "hi" }
+}'</code>
+  </div>
+
+  <div class="foot lab">Agents plug in via MCP: <span style="color:var(--ink2)">npx agora-pay-mcp</span> · <a href="https://github.com/Ritik200238/agora">source</a></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const money = (x) => '$' + (+x).toFixed(+x < 0.01 ? 6 : 2);
+fetch('/x402/services').then(r=>r.json()).then(d => {
+  $('net').textContent = (d.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM') + ' · pay-to ' + String(d.payTo).slice(0,6) + '…' + String(d.payTo).slice(-4);
+  const svcs = d.services || [];
+  $('count').textContent = svcs.length + ' live';
+  $('grid').innerHTML = svcs.map(s => `
+    <div class="svc">
+      <div class="top"><span class="name">${s.name || s.id}</span><span class="price">${money(s.priceUsdc)}</span></div>
+      <div class="desc">${s.desc || ''}</div>
+      <div class="meta">
+        <span class="badge b">${s.kind || 'service'}</span>
+        <span class="badge ${s.verdict || 'NEUTRAL'}">${s.verdict || '—'}${s.trustScore!=null?' · '+s.trustScore:''}</span>
+        ${s.stats && s.stats.calls != null ? `<span class="badge">${s.stats.calls} calls</span>` : ''}
+      </div>
+      <div class="id">${s.id}</div>
+    </div>`).join('') || '<div class="empty">No services yet — be the first to list one below.</div>';
+}).catch(() => { $('grid').innerHTML = '<div class="empty">Marketplace offline.</div>'; $('net').textContent='offline'; });
+</script>
+</body>
+</html>
