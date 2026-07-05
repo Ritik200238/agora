@@ -14,6 +14,7 @@
     "test:pg": "tsx test/pgstore.ts",
     "test:warranty": "tsx test/warranty.ts",
     "test:services": "tsx test/services.ts",
+    "test:paywall": "tsx test/paywall.ts",
     "test:mcp": "tsx test/mcp.ts",
     "chain": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
