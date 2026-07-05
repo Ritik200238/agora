@@ -27,6 +27,7 @@ const post = (p: string, body?: any) =>
     async (r) => ({ status: r.status, body: await r.json() })
   );
 const get = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status, body: await r.json() }));
+const getText = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status, ct: r.headers.get("content-type") || "", text: await r.text() }));
 
 async function main() {
   const chain = await startChain();
@@ -124,6 +125,28 @@ async function main() {
 
     // 12. …and the buyer is STILL never charged for the failure — the bond, not the buyer, pays the price
     check("the buyer was still NOT charged for the failed call", lastBad.status === 502 && lastBad.body.charged === false, `status=${lastBad.status}`);
+
+    console.log("\n[Phase 3.1 — discovery: every service is a crawlable, indexable page]");
+
+    // 13. a registered service renders a real SSR page with SEO meta + schema.org JSON-LD
+    const pg = await getText(`/s/${svcId}`);
+    const hasJsonLd = pg.text.includes('"@type":"Service"') && pg.text.includes('"priceCurrency":"USDC"');
+    const hasMeta = pg.text.includes("<title>") && pg.text.includes('property="og:title"') && pg.text.includes('rel="canonical"');
+    check("a service renders a crawlable page with title/OG/canonical + JSON-LD", pg.status === 200 && pg.ct.includes("html") && hasJsonLd && hasMeta && pg.text.includes("Uppercase API"), `status=${pg.status}`);
+
+    // 14. a built-in service is indexable too (so search traffic can find sub-cent price/trust APIs)
+    const pgBuiltin = await getText("/s/price");
+    check("built-in services are indexable pages as well", pgBuiltin.status === 200 && pgBuiltin.text.includes('"@type":"Service"'), `status=${pgBuiltin.status}`);
+
+    // 15. sitemap.xml lists services; unknown ids are a noindex 404; robots points at the sitemap
+    const sm = await getText("/sitemap.xml");
+    const missing = await getText("/s/svc_does_not_exist");
+    const robots = await getText("/robots.txt");
+    check("sitemap.xml lists services; 404 is noindex; robots links the sitemap",
+      sm.status === 200 && sm.text.includes(`/s/${svcId}`) && sm.text.includes("<urlset") &&
+      missing.status === 404 && missing.text.includes('name="robots" content="noindex"') &&
+      robots.text.includes("Sitemap:"),
+      `sitemap=${sm.status}, 404=${missing.status}`);
   } finally {
     if (server) server.close();
     chain.stop();

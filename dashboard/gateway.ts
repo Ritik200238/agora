@@ -20,6 +20,7 @@ import { usd, fmtUsd, usdcMint, usdcTransfer } from "../shared/usdc";
 import * as A from "../shared/contracts";
 import { rateLimit } from "./ratelimit";
 import { store, type RegisteredService } from "./store";
+import { renderServicePage, renderNotFound, renderRobots, renderSitemap, publicBase, type PageService } from "./pages";
 import type { Economy } from "../orchestrator/economy";
 import type { Society } from "../agents/society";
 
@@ -512,7 +513,31 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   });
 
   app.use("/x402", r);
-  console.log(`• pay-per-use gateway mounted at /x402 (${Object.keys(services).length} services, payTo ${payTo.slice(0, 8)}…)`);
+
+  // --- server-rendered, indexable pages (the $0 discovery channel: Google/agent crawlers → live services) ---
+  async function resolvePageService(id: string): Promise<PageService | null> {
+    const reg = store.getService(id);
+    if (reg) {
+      const bond = await A.serviceBondOf(reg.payTo).catch(() => 0n);
+      return publicService(reg, bond) as PageService;
+    }
+    const b = services[id];
+    if (b) return { id: b.id, kind: "builtin", name: b.id[0].toUpperCase() + b.id.slice(1), desc: b.desc, priceUsdc: fmtUsd(b.price), example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" };
+    return null;
+  }
+  app.get("/s/:id", rateLimit(120), async (req, res) => {
+    const base = publicBase(req);
+    const svc = await resolvePageService(String(req.params.id));
+    if (!svc) return res.status(404).type("html").send(renderNotFound(base));
+    res.type("html").send(renderServicePage(svc, base));
+  });
+  app.get("/sitemap.xml", (req, res) => {
+    const ids = [...Object.keys(services), ...store.listServices().map((s) => s.id)];
+    res.type("application/xml").send(renderSitemap(publicBase(req), ids));
+  });
+  app.get("/robots.txt", (req, res) => res.type("text/plain").send(renderRobots(publicBase(req))));
+
+  console.log(`• pay-per-use gateway mounted at /x402 (${Object.keys(services).length} services, payTo ${payTo.slice(0, 8)}…); SEO pages at /s/:id + /sitemap.xml`);
 }
 
 /** Verify a real on-chain USDC payment: a transfer to payTo of >= price, mined recently, not already used. */
