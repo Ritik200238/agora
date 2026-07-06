@@ -41,6 +41,11 @@ All 6 contracts are live on Arc against the real USDC (`0x3600…0000`) — JobB
 `0x390A9A87…`. Real **tiny-USDC pay-per-use** settled on-chain (a **$0.000001** nanopayment + $0.001 / $0.0005
 calls), each verified — Arcscan links above. Reproduce: `npm run deploy:arc && npm run arc:demo`.
 
+> **Honesty note on the hosted demo:** the always-on Render app runs on a **local-EVM sandbox** (same code +
+> contracts) so it's instant and always-on — its tx hashes are **local, not on Arcscan.** The Arc settlement
+> above is the verifiable proof (open the Arcscan links). The copy across the site says this explicitly so a
+> judge is never misled into pasting a local tx hash into Arcscan.
+
 ## Submission checklist
 
 - [x] Public GitHub repo — contracts, marketplace, MCP, paywall, insurance, tests

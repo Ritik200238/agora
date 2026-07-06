@@ -121,6 +121,7 @@
     <h1>Pay per call.<br><span class="accent">No subscription.</span></h1>
     <p><strong>Open a tab</strong> — like a bar tab: pre-fund a spending cap, then pay <strong>sub-cent USDC</strong> for each call, down to <strong>$0.000001</strong>. Every call settles on-chain, and the cap is enforced so an agent can never overspend.</p>
     <div class="net lab"><span class="ldot"></span><span id="net">connecting…</span></div>
+    <p class="lab" style="margin-top:12px;max-width:64ch;line-height:1.7;color:var(--label)">This demo settles on a free <strong style="color:var(--ink2)">local-EVM sandbox</strong> (instant &amp; always-on), so tx hashes shown here are local — <strong>not</strong> on Arcscan. Real tiny-USDC settlement is <strong style="color:var(--ink2)">proven on Arc Testnet</strong>: <a href="https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839" target="_blank" rel="noopener">verify the $0.000001 tx on Arcscan ↗</a>.</p>
   </div>
 
   <div id="tabCard" class="tab empty">
@@ -259,7 +260,7 @@ function addBill(service, price, tx){
   $('bill').innerHTML = BILL.map(b => {
     const txCell = SETTLE === 'arc'
       ? `<a class="tx txlink" href="https://testnet.arcscan.app/tx/${b.tx}" target="_blank" rel="noopener" title="view on Arcscan">${b.tx.slice(0,10)}… ↗</a>`
-      : `<span class="tx" title="${b.tx}">${b.tx.slice(0,10)}…</span>`;
+      : `<span class="tx" title="local-EVM sandbox tx — not on Arcscan">${b.tx.slice(0,10)}… · local</span>`;
     return `<div class="row"><span class="s">${esc(svcName({id:b.service, name: (SERVICES.find(x=>x.id===b.service)||{}).name}))}</span><span class="p">${money(b.price)}</span>${txCell}</div>`;
   }).join('');
 }
