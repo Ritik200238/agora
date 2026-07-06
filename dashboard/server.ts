@@ -134,6 +134,31 @@ async function main() {
       setTimeout(loop, TICK_MS);
     };
     loop();
+
+    // Chain watchdog: if the in-process Hardhat node dies (e.g. OOM-killed on a small host), the web server
+    // would otherwise keep serving a half-dead app ("could not open tab: fetch failed"). Detect it and exit
+    // non-zero so the platform supervisor (Render) restarts the whole service with a fresh chain.
+    let chainFails = 0;
+    setInterval(async () => {
+      try {
+        const r = await fetch("http://127.0.0.1:8545", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        chainFails = 0;
+      } catch {
+        chainFails++;
+        console.error(`chain watchdog: node unreachable (${chainFails}/3)`);
+        if (chainFails >= 3) {
+          console.error("chain watchdog: chain is dead — exiting so the supervisor restarts us with a fresh chain");
+          process.exit(1);
+        }
+      }
+    }, 30_000);
+
     process.on("SIGINT", () => {
       chain.stop();
       process.exit(0);
