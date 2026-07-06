@@ -154,7 +154,7 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="live-chip"><span class="ldot"></span><span class="lab">Live on Circle's Arc · Chain 5042002</span></div>
+    <div class="live-chip"><span class="ldot"></span><span class="lab">USDC pay-per-use · proven on Arc testnet (5042002)</span></div>
     <h1>The money layer for <span class="accent">AI agents.</span></h1>
     <p class="sub">Agora lets any AI agent — or developer — <strong>charge and pay per API call in fractions of a cent</strong>, settled instantly in USDC on Arc. No subscriptions, no Stripe, no KYC, no custody. Plus the trust layer nobody else has: sellers <strong>stake USDC</strong>, bad actors get <strong>slashed</strong>, and buyers are <strong>insured</strong>.</p>
     <div class="cta-row">
@@ -164,12 +164,16 @@
     </div>
 
     <div class="metrics">
-      <div class="metric"><div class="v green">$0.000001</div><div class="k lab">Smallest payment · on Arc</div></div>
+      <div class="metric"><div class="v green">$0.000001</div><div class="k lab">Settled on Arc · verified</div></div>
       <div class="metric"><div class="v">1 line</div><div class="k lab">To give an agent a wallet</div></div>
       <div class="metric"><div class="v">6</div><div class="k lab">On-chain contracts</div></div>
       <div class="metric"><div class="v green">32 / 32</div><div class="k lab">Contract tests passing</div></div>
     </div>
-    <div class="metrics-note lab">Real tiny-USDC pay-per-use has settled on Arc Testnet down to <span class="mono">$0.000001</span>, verified on Arcscan. Every payment is a real on-chain USDC transfer.</div>
+    <div class="metrics-note lab">Real tiny-USDC pay-per-use is <strong style="color:var(--ink2)">proven on Arc Testnet</strong> down to <span class="mono">$0.000001</span> — verify the txs on Arcscan:
+      <a href="https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839" target="_blank" rel="noopener" style="color:var(--green)">$0.000001</a> ·
+      <a href="https://testnet.arcscan.app/tx/0x74073eee40d40e9b5fc99425e1199715305e1f1a831917df79af2574c2d3cd8f" target="_blank" rel="noopener" style="color:var(--green)">$0.001</a> ·
+      <a href="https://testnet.arcscan.app/tx/0x2e3b0dbd754dc33da251b903899734119fc3e9e6e4d188d25d2bf47dc6aeb9ce" target="_blank" rel="noopener" style="color:var(--green)">$0.0005</a>.
+      The <strong style="color:var(--ink2)">interactive demo</strong> you can try runs on a free <strong style="color:var(--ink2)">local-EVM sandbox</strong> (same code + contracts) — instant and always-on, so its tx hashes are local, not on Arcscan.</div>
   </div>
 </header>
 
@@ -230,12 +234,12 @@
     <div class="verified">
       <div class="vcard"><div class="vn">32</div><div class="vt">Hardhat contract tests — escrow lifecycle, fraud→slash, bonded-service slashing, the buyer-protection insurance pool, self-deal &amp; owner-rug guards, and the credit market.</div></div>
       <div class="vcard"><div class="vn">7</div><div class="vt">End-to-end suites against a real chain — the economy, the pay-per-use gateway, the multi-tenant marketplace, seeded bonded services, the warranty/insurance flow, and the agent MCP.</div></div>
-      <div class="vcard"><div class="vn">$0.000001</div><div class="vt">Smallest real pay-per-use payment settled on Arc Testnet — verified on Arcscan. Every payment is a real on-chain USDC transfer.</div></div>
+      <div class="vcard"><div class="vn">$0.000001</div><div class="vt">Smallest real pay-per-use payment settled on Arc Testnet — <a href="https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839" target="_blank" rel="noopener" style="color:var(--green)">verify it on Arcscan ↗</a>. A real on-chain USDC transfer.</div></div>
     </div>
     <div class="checklist">
-      <div><span class="ck">✓</span> Verified against real Arc Testnet — <span class="mono">chain 5042002</span>, contracts deployed, tiny-USDC settled on-chain.</div>
-      <div><span class="ck">✓</span> Traction is labeled honestly: self-generated <span class="mono">internalVolume</span> vs. real <span class="mono">externalVolume</span> — never conflated.</div>
-      <div><span class="ck">✓</span> CI runs the whole suite on every push.</div>
+      <div><span class="ck">✓</span> Verified on real Arc Testnet — <span class="mono">chain 5042002</span>, contracts deployed, tiny-USDC settled on-chain (Arcscan links above).</div>
+      <div><span class="ck">✓</span> The always-on hosted demo runs on a <strong style="color:var(--ink2)">local-EVM sandbox</strong> — same code + contracts, switchable to Arc with a funded key. Its tx hashes are local, not on Arcscan.</div>
+      <div><span class="ck">✓</span> Traction is labeled honestly: self-generated <span class="mono">internalVolume</span> vs. real <span class="mono">externalVolume</span> — never conflated. CI runs the whole suite on every push.</div>
     </div>
   </div>
 </section>

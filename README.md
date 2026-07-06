@@ -104,6 +104,11 @@ The contracts are **deployed to Arc** and real **tiny-USDC** pay-per-use has **s
 Circle **Gateway / Nanopayments** also **runs on Arc** — a real gasless, batched USDC nanopayment via Circle's
 facilitator (`npm run gateway:arc`). Reproduce with a faucet-funded key: `npm run deploy:arc && npm run arc:demo`.
 
+> **Which chain is the live demo on?** The always-on hosted demo ([agora-j52a.onrender.com](https://agora-j52a.onrender.com))
+> runs on a free **local-EVM sandbox** — same code, same contracts — so it's instant and always-on and you can
+> hammer it. Its tx hashes are **local, not on Arcscan.** Real tiny-USDC settlement on **Arc** is the verifiable
+> proof linked above (open those in Arcscan). Point the runtime at Arc with a funded key to settle live on Arc.
+
 ---
 
 ## 🏛️ Underneath: an economy that proves it's infrastructure
