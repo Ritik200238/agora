@@ -5,7 +5,7 @@
   "description": "Agora — the self-running agent economy on Arc. Autonomous AI agents hire, pay, rate, and compete, settling USDC.",
   "scripts": {
     "compile": "hardhat compile",
-    "test": "hardhat test && tsx test/ratelimit.ts && tsx test/pgstore.ts && tsx test/e2e.ts && tsx test/gateway.ts && tsx test/registry.ts && tsx test/seed.ts && tsx test/warranty.ts && tsx test/paywall.ts && tsx test/mcp.ts",
+    "test": "hardhat test && tsx test/ratelimit.ts && tsx test/egress.ts && tsx test/pgstore.ts && tsx test/e2e.ts && tsx test/gateway.ts && tsx test/registry.ts && tsx test/seed.ts && tsx test/warranty.ts && tsx test/paywall.ts && tsx test/mcp.ts",
     "test:contracts": "hardhat test",
     "test:runtime": "tsx test/runtime-smoke.ts",
     "test:gateway": "tsx test/gateway.ts",

@@ -21,6 +21,7 @@ import { dep, SETTLEMENT_MODE } from "../shared/config";
 import { usd, fmtUsd, usdcMint, usdcTransfer } from "../shared/usdc";
 import * as A from "../shared/contracts";
 import { rateLimit } from "./ratelimit";
+import { sellerPost, checkSellerUrl } from "./egress";
 import { store, type RegisteredService } from "./store";
 import { renderServicePage, renderNotFound, renderRobots, renderSitemap, publicBase, type PageService } from "./pages";
 import type { Economy } from "../orchestrator/economy";
@@ -303,23 +304,15 @@ async function trustProfile(ref: unknown, eco: Economy) {
 }
 
 // --- multi-tenant registry: any dev lists their own HTTP service; we proxy + settle payment directly. ---
-/** POST the buyer's input to the seller's URL (timeout + size cap; no internal headers forwarded). */
-async function proxyCall(url: string, input: any): Promise<{ ok: boolean; data?: any; error?: string }> {
+/** POST the buyer's input to the seller's URL — public addresses only, no redirects, 10s deadline for the whole
+ *  exchange, 256KB streamed cap (see egress.ts). Our own house services are the one trusted loopback target. */
+async function proxyCall(svc: RegisteredService, input: any): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const r = await sellerPost(svc.url, { input }, { trusted: !!svc.internal });
+  if (!r.ok) return { ok: false, error: r.error ?? `seller returned HTTP ${r.status}` };
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 10_000);
-    const resp = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input }), signal: ctrl.signal });
-    clearTimeout(timer);
-    if (!resp.ok) return { ok: false, error: `seller returned HTTP ${resp.status}` };
-    const text = await resp.text();
-    if (text.length > 256_000) return { ok: false, error: "seller response too large" };
-    try {
-      return { ok: true, data: JSON.parse(text) };
-    } catch {
-      return { ok: true, data: text };
-    }
-  } catch (e) {
-    return { ok: false, error: String((e as Error)?.message ?? e).slice(0, 120) };
+    return { ok: true, data: JSON.parse(r.text ?? "") };
+  } catch {
+    return { ok: true, data: r.text };
   }
 }
 /** The warranty check: did the seller deliver what it promised? Empty/garbage output that comes back with a
@@ -510,6 +503,8 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     const priceNum = Number(b.priceUsdc);
     if (!name || name.length > 60) return res.status(400).json({ error: "name required (<= 60 chars)" });
     if (!/^https?:\/\/.{3,}/.test(url)) return res.status(400).json({ error: "url must be a valid http(s) endpoint that accepts POST { input }" });
+    const urlProblem = checkSellerUrl(url); // also enforced on every call, against the address actually connected to
+    if (urlProblem) return res.status(400).json({ error: urlProblem });
     if (!(priceNum > 0) || priceNum > 1) return res.status(400).json({ error: "priceUsdc must be in (0, 1]" });
     if (!/^0x[0-9a-fA-F]{40}$/.test(payTo)) return res.status(400).json({ error: "payTo must be a 0x wallet address (you get paid here)" });
     const requires = Array.isArray(b.requires) ? b.requires.map((k: any) => String(k)).filter((k: string) => k && k.length <= 40).slice(0, 12) : undefined;
@@ -615,7 +610,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
         return res.status(400).json({ error: String((e as Error)?.message ?? e), charged: false });
       }
     } else {
-      const proxied = await proxyCall(registered!.url, req.body?.input);
+      const proxied = await proxyCall(registered!, req.body?.input);
       if (!proxied.ok) {
         store.recordCall(registered!.id, price, false); // a failure dents the seller's trust score
         const sellerSlashed = await maybeSlashBadService(registered!, price); // …and, if it's bonded + truly bad, its stake

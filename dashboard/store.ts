@@ -21,6 +21,7 @@ export interface RegisteredService {
   revenueUnits: string; // cumulative earned, atomic units as string
   slashedUnits?: string; // cumulative stake slashed for misbehaviour, atomic units as string
   requires?: string[]; // required top-level fields the seller PROMISES to return (warranty contract)
+  internal?: boolean; // our own house service on loopback — the only listing exempt from the public-address guard
   ownerVerified?: boolean; // payTo signed the listing — only then does payTo's ServiceBond back (and get slashed for) it
 }
 

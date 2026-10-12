@@ -20,6 +20,8 @@ function check(name: string, cond: boolean, detail = "") {
   console.log(`  ${cond ? "✅" : "❌"} ${name}${detail ? ` — ${detail}` : ""}`);
   if (!cond) fails++;
 }
+// sellers in this test run on localhost — opt in to private seller URLs (production refuses them)
+process.env.AGORA_ALLOW_PRIVATE_SELLER_URLS = "1";
 const PORT = 4077;
 const base = `http://localhost:${PORT}`;
 const post = (p: string, body?: any) =>
