@@ -30,7 +30,8 @@ async function buildMarket(): Promise<GatewayOptions> {
   const rail = await new ArcRail(key).init();
   const capUnits = usd(Number(process.env.ARC_TAB_CAP_USDC || 0.01));
   const budgetUnits = usd(Number(process.env.ARC_TAB_DAILY_BUDGET_USDC || 0.5));
-  const tabs = new ArcTabPool(new ArcTabFunder(key, budgetUnits), capUnits, Number(process.env.ARC_TAB_POOL || 2));
+  const floorUnits = usd(Number(process.env.ARC_OPERATOR_FLOOR_USDC || 5));
+  const tabs = new ArcTabPool(new ArcTabFunder(key, budgetUnits, undefined, undefined, floorUnits), capUnits, Number(process.env.ARC_TAB_POOL || 2));
   console.log(`• marketplace settles on ARC via Circle Gateway (operator ${market.operator.account.address.slice(0, 10)}…, demo tabs $${fmtUsd(capUnits)} each, $${fmtUsd(budgetUnits)}/day)`);
   return { market, arc: { rail, tabs } };
 }

@@ -23,6 +23,7 @@ const BATCH_NAME = "GatewayWalletBatched";
 const BATCH_VERSION = "1";
 const AUTH_WINDOW_SECONDS = 7 * 24 * 3600 + 100; // Gateway's minimum authorization validity + buffer
 const ERC20_TRANSFER = parseAbiItem("function transfer(address to, uint256 value) returns (bool)");
+const ERC20_BALANCE = parseAbiItem("function balanceOf(address who) view returns (uint256)");
 
 export interface PaymentRequirements {
   scheme: string;
@@ -192,7 +193,11 @@ export class ArcTabFunder {
     private operatorKey: `0x${string}`,
     readonly dailyBudgetUnits: bigint,
     readonly gasBufferUnits = 8_000n, // $0.008 covers approve + deposit (measured ~$0.0045) with headroom
-    readonly creditTimeoutMs = 120_000
+    readonly creditTimeoutMs = 120_000,
+    /** Hard floor, checked against the operator's ON-CHAIN balance before every funding. The daily budget is
+     *  in memory, so a restart resets it; on a free host that restarts often, only this floor reliably stops
+     *  demo tabs from draining the operator (which also pays for slashes and claim payouts). */
+    readonly operatorFloorUnits = 5_000_000n
   ) {
     this.reader = new GatewayClient({ chain: "arcTestnet", privateKey: operatorKey, rpcUrl: ARC_RPC });
   }
@@ -218,6 +223,8 @@ export class ArcTabFunder {
     this.spentToday += cost; // reserve before any await so concurrent opens can't overshoot the budget
     let funded = false;
     try {
+      const opBalance = (await arcPublicClient.readContract({ address: "0x3600000000000000000000000000000000000000", abi: [ERC20_BALANCE], functionName: "balanceOf", args: [privateKeyToAccount(this.operatorKey).address] })) as bigint;
+      if (opBalance < this.operatorFloorUnits + cost) throw new Error("free demo credit is paused (operator reserve reached) — pay from your own Arc wallet via /x402/arc/:service");
       const privateKey = generatePrivateKey();
       const address = privateKeyToAccount(privateKey).address;
       const op = arcWallet(this.operatorKey);

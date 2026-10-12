@@ -26,6 +26,11 @@ async function main() {
   const rail = await new ArcRail(opKey).init();
   check("facilitator supports Arc (verifying contract + USDC loaded)", true);
 
+  // the on-chain reserve floor holds even with budget to spare (restarts reset the in-memory budget, not this)
+  const guarded = new ArcTabFunder(opKey, 50_000n, undefined, undefined, 10n ** 15n); // floor far above any balance
+  const blocked = await guarded.open(10_000n).then(() => "FUNDED", (e) => String(e?.message ?? e));
+  check("tab funding stops at the operator's on-chain reserve floor", /reserve/.test(blocked), blocked.slice(0, 70));
+
   const funder = new ArcTabFunder(opKey, 50_000n); // $0.05 budget for this run
   const t0 = Date.now();
   const tab = await funder.open(10_000n); // $0.01 cap
