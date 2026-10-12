@@ -14,7 +14,7 @@
 import express, { type Express } from "express";
 import { resolveMx } from "node:dns/promises";
 import { timingSafeEqual, randomBytes } from "node:crypto";
-import { keccak256, toHex, parseAbiItem, decodeEventLog, parseEther } from "viem";
+import { keccak256, toHex, parseAbiItem, decodeEventLog, parseEther, verifyMessage } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { publicClient, walletFor, activeChain, type Wallet } from "../shared/chain";
 import { dep, SETTLEMENT_MODE } from "../shared/config";
@@ -357,6 +357,16 @@ function registeredTrust(s: RegisteredService, bondUnits: bigint = 0n): { trustS
   t = Math.max(0, Math.min(100, Math.round(t)));
   return { trustScore: t, verdict: t >= 75 ? "TRUSTED" : t >= 40 ? "NEUTRAL" : t >= 15 ? "RISKY" : "AVOID", bonded: bondedUsd > 0 };
 }
+/** ServiceBond is keyed by wallet, and anyone can list a service with any payTo. So a wallet's bond only
+ *  backs a listing — and can only be slashed because of it — once payTo has signed that listing. Without
+ *  this, a stranger could list a dead endpoint under a victim's bonded payTo and get the victim slashed. */
+const ownershipMessage = (id: string, payTo: string) =>
+  `Agora: I control ${payTo.toLowerCase()} and list service ${id} on the marketplace.`;
+async function bondBacking(s: RegisteredService): Promise<bigint> {
+  if (!s.ownerVerified) return 0n;
+  return A.serviceBondOf(s.payTo).catch(() => 0n);
+}
+
 /** Public (buyer-facing) view of a registered service, including its live on-chain bond. */
 function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
   const slashed = BigInt(s.slashedUnits ?? "0");
@@ -370,6 +380,7 @@ function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
     example: s.exampleInput,
     payTo: s.payTo,
     requires: s.requires ?? [], // fields the seller promises to return (warranty contract)
+    ownerVerified: !!s.ownerVerified, // payTo signed this listing (required for its bond to count)
     warranted: true, // every marketplace call is covered: never charged for junk + insured
     bondUsdc: fmtUsd(bondUnits), // real USDC the seller has staked behind this service
     stats: {
@@ -428,7 +439,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       const fresh = store.getService(svc.id);
       if (!fresh || fresh.calls < 4) return null;
       if (fresh.failures / fresh.calls < 0.5) return null;
-      const bond = await A.serviceBondOf(fresh.payTo).catch(() => 0n);
+      const bond = await bondBacking(fresh); // only a payTo-signed listing can cost payTo its stake
       if (bond <= 0n) return null;
       const penalty = price * 100n < bond ? price * 100n : bond; // 100× the call price, capped at the stake
       if (penalty <= 0n) return null;
@@ -447,7 +458,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   // --- discovery: built-in + registered third-party services (each with a trust verdict + live bond) ---
   r.get("/services", async (_req, res) => {
     const registered = store.listServices();
-    const bonds = await Promise.all(registered.map((s) => A.serviceBondOf(s.payTo).catch(() => 0n)));
+    const bonds = await Promise.all(registered.map(bondBacking));
     const totalBonded = bonds.reduce((a, b) => a + b, 0n);
     const [totalSlashed, insurancePool, insurancePaid] = await Promise.all([
       A.serviceBondTotalSlashed().catch(() => 0n),
@@ -490,7 +501,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   });
 
   // --- SELLER DOOR: any dev lists their own HTTP service. Paid DIRECTLY on-chain per successful call. ---
-  r.post("/services/register", rateLimit(10), (req, res) => {
+  r.post("/services/register", rateLimit(10), async (req, res) => {
     const b = req.body || {};
     const name = String(b.name ?? "").trim();
     const url = String(b.url ?? "").trim();
@@ -503,6 +514,15 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     if (!/^0x[0-9a-fA-F]{40}$/.test(payTo)) return res.status(400).json({ error: "payTo must be a 0x wallet address (you get paid here)" });
     const requires = Array.isArray(b.requires) ? b.requires.map((k: any) => String(k)).filter((k: string) => k && k.length <= 40).slice(0, 12) : undefined;
     const id = "svc_" + keccak256(toHex(`${url}|${name}|${payTo}`)).slice(2, 12);
+    const message = ownershipMessage(id, payTo);
+    let signed = false;
+    if (b.signature != null) {
+      signed = await verifyMessage({ address: payTo as `0x${string}`, message, signature: String(b.signature) as `0x${string}` }).catch(() => false);
+      if (!signed) return res.status(400).json({ error: "signature does not match payTo for this listing", sign: message });
+    }
+    const prev = store.getService(id);
+    // a payTo-signed listing can only be changed by payTo again (or anyone could re-price / re-describe it)
+    if (prev?.ownerVerified && !signed) return res.status(409).json({ error: "this listing is owner-verified — re-register with a payTo signature to change it", sign: message });
     const svc = store.registerService({
       id,
       name,
@@ -511,17 +531,23 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       desc: desc.slice(0, 200),
       payTo: payTo as `0x${string}`,
       exampleInput: b.exampleInput ?? {},
-      createdAt: new Date().toISOString(),
-      calls: 0,
-      failures: 0,
-      revenueUnits: "0",
+      // re-registering keeps the track record — otherwise a seller could wipe its failures + slashes
+      createdAt: prev?.createdAt ?? new Date().toISOString(),
+      calls: prev?.calls ?? 0,
+      failures: prev?.failures ?? 0,
+      revenueUnits: prev?.revenueUnits ?? "0",
+      slashedUnits: prev?.slashedUnits ?? "0",
       requires,
+      ownerVerified: signed || !!prev?.ownerVerified,
     });
     res.json({
       ok: true,
-      service: publicService(svc),
+      service: publicService(svc, await bondBacking(svc)),
+      ...(svc.ownerVerified
+        ? {}
+        : { verifyOwnership: { message, how: "sign `message` with the payTo wallet (EIP-191 personal_sign) and re-register with the same fields + { signature } — required before your ServiceBond stake counts for this listing" } }),
       callWith: `POST /x402/tab/<tabId>/call  { "service": "${id}", "input": ... }`,
-      bondWith: { contract: dep().serviceBond, method: "bond(uint256 usdcUnits) — approve first, from payTo", why: "stake USDC to earn a BONDED badge + trust boost; a service that repeatedly fails gets slashed" },
+      bondWith: { contract: dep().serviceBond, method: "bond(uint256 usdcUnits) — approve first, from payTo", why: "stake USDC to earn a BONDED badge + trust boost; a service that repeatedly fails gets slashed. Counts only for owner-verified (payTo-signed) listings." },
       note: "You're paid directly on-chain to payTo on every SUCCESSFUL call — no custody, no withdrawal. Buyers aren't charged if your endpoint fails. Bond USDC to stand out as trustworthy.",
     });
   });
@@ -529,10 +555,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   // service detail (built-in or registered) + trust + live on-chain bond
   r.get("/services/:id", async (req, res) => {
     const reg = store.getService(req.params.id);
-    if (reg) {
-      const bond = await A.serviceBondOf(reg.payTo).catch(() => 0n);
-      return res.json(publicService(reg, bond));
-    }
+    if (reg) return res.json(publicService(reg, await bondBacking(reg)));
     const b = services[req.params.id];
     if (b) return res.json({ id: b.id, kind: "builtin", name: builtinName(b.id), priceUsdc: fmtUsd(b.price), desc: b.desc, example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" });
     return res.status(404).json({ error: "unknown service" });
@@ -701,8 +724,9 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       // 1) make the buyer whole from the buyer-protection pool
       const rcpt = await A.insurancePayout(faucet, claim.buyer, claim.amount, `claim ${claim.id} on ${claim.service}`);
       // 2) slash the seller to replenish the pool (registered + bonded sellers only) + dent their trust
-      if (store.getService(claim.service)) {
-        const bond = await A.serviceBondOf(claim.seller).catch(() => 0n);
+      const claimed = store.getService(claim.service);
+      if (claimed) {
+        const bond = await bondBacking(claimed);
         if (bond > 0n) {
           const penalty = claim.amount > bond ? bond : claim.amount;
           await A.serviceBondSlash(faucet, claim.seller, penalty, `upheld claim ${claim.id}`).catch(() => {});
@@ -765,10 +789,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   // --- server-rendered, indexable pages (the $0 discovery channel: Google/agent crawlers → live services) ---
   async function resolvePageService(id: string): Promise<PageService | null> {
     const reg = store.getService(id);
-    if (reg) {
-      const bond = await A.serviceBondOf(reg.payTo).catch(() => 0n);
-      return publicService(reg, bond) as PageService;
-    }
+    if (reg) return publicService(reg, await bondBacking(reg)) as PageService;
     const b = services[id];
     if (b) return { id: b.id, kind: "builtin", name: builtinName(b.id), desc: b.desc, priceUsdc: fmtUsd(b.price), example: b.example, bonded: true, trustScore: 90, verdict: "TRUSTED" };
     return null;

@@ -26,6 +26,13 @@ const post = (p: string, body?: any, headers: Record<string, string> = {}) =>
   fetch(base + p, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json() }));
 const ADMIN = "test-operator-" + Math.random().toString(36).slice(2);
 process.env.AGORA_ADMIN_TOKEN = ADMIN;
+/** List a service, then prove payTo ownership by signing the returned message (needed for its bond to count). */
+const registerSigned = async (pk: `0x${string}`, body: any) => {
+  const first = await post("/x402/services/register", body);
+  if (!first.body.verifyOwnership) return first;
+  const signature = await privateKeyToAccount(pk).signMessage({ message: first.body.verifyOwnership.message });
+  return post("/x402/services/register", { ...body, signature });
+};
 const get = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status, body: await r.json() }));
 
 async function main() {
@@ -52,8 +59,8 @@ async function main() {
     await usdcApprove(sellerWallet, dep().usdc, dep().serviceBond, usd(5));
     await A.serviceBondPost(sellerWallet, usd(5));
 
-    const good = await post("/x402/services/register", { name: "Warranted Oracle", url: `${base}/w-good`, priceUsdc: 0.002, desc: "returns an answer", payTo: seller.address, requires: ["answer"] });
-    const junk = await post("/x402/services/register", { name: "Junk Oracle", url: `${base}/w-junk`, priceUsdc: 0.002, desc: "returns nothing", payTo: seller.address, requires: ["answer"] });
+    const good = await registerSigned(sellerPk, { name: "Warranted Oracle", url: `${base}/w-good`, priceUsdc: 0.002, desc: "returns an answer", payTo: seller.address, requires: ["answer"] });
+    const junk = await registerSigned(sellerPk, { name: "Junk Oracle", url: `${base}/w-junk`, priceUsdc: 0.002, desc: "returns nothing", payTo: seller.address, requires: ["answer"] });
     const goodId = good.body.service.id, junkId = junk.body.service.id;
 
     // 1. the warranty contract is advertised

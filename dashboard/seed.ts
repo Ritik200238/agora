@@ -115,6 +115,7 @@ export async function seedMarketplace(society: Society, port: number): Promise<n
         revenueUnits: prev?.revenueUnits ?? "0",
         slashedUnits: prev?.slashedUnits ?? "0",
         requires: h.requires,
+        ownerVerified: true, // the server holds these payout keys, so ownership is given
       });
       // stake real USDC behind it (top up to BOND_EACH)
       const already = await A.serviceBondOf(acct.address).catch(() => 0n);

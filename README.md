@@ -42,6 +42,11 @@ curl -s -XPOST $URL/x402/services/register -H content-type:application/json -d '
 }'
 ```
 
+To make a stake count for your listing, prove you own `payTo`: the response includes `verifyOwnership.message`
+— sign it with the `payTo` wallet (EIP-191 `personal_sign`) and re-send the same body plus `"signature"`. Until
+then the listing works and earns, but shows no bond and can never touch your stake (so nobody can list a broken
+endpoint under *your* wallet to get you slashed).
+
 **Agents — pay per call.** Plug any Claude / Cursor / Codex agent in with **one MCP config line** — it gets a
 budget-capped wallet + a trust-checked marketplace on Arc:
 

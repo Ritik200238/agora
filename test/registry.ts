@@ -27,6 +27,13 @@ const post = (p: string, body?: any) =>
     async (r) => ({ status: r.status, body: await r.json() })
   );
 const get = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status, body: await r.json() }));
+/** List a service, then prove payTo ownership by signing the returned message (needed for its bond to count). */
+const registerSigned = async (pk: `0x${string}`, body: any) => {
+  const first = await post("/x402/services/register", body);
+  if (!first.body.verifyOwnership) return first;
+  const signature = await privateKeyToAccount(pk).signMessage({ message: first.body.verifyOwnership.message });
+  return post("/x402/services/register", { ...body, signature });
+};
 const getText = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status, ct: r.headers.get("content-type") || "", text: await r.text() }));
 
 async function main() {
@@ -50,7 +57,7 @@ async function main() {
     // 1. a third-party seller registers their own service
     const sellerPk = generatePrivateKey();
     const seller = privateKeyToAccount(sellerPk);
-    const reg = await post("/x402/services/register", {
+    const reg = await registerSigned(sellerPk, {
       name: "Uppercase API", url: `${base}/seller-echo`, priceUsdc: 0.002,
       desc: "uppercases your text", payTo: seller.address, exampleInput: { text: "hi" },
     });
@@ -115,7 +122,7 @@ async function main() {
     await usdcMint(society.faucet, dep().usdc, badSeller.address, usd(5));
     await usdcApprove(badWallet, dep().usdc, dep().serviceBond, usd(5));
     await A.serviceBondPost(badWallet, usd(5));
-    const regBonded = await post("/x402/services/register", { name: "Bonded-but-broken", url: `${base}/seller-bad`, priceUsdc: 0.002, desc: "bonded yet always fails", payTo: badSeller.address });
+    const regBonded = await registerSigned(badPk, { name: "Bonded-but-broken", url: `${base}/seller-bad`, priceUsdc: 0.002, desc: "bonded yet always fails", payTo: badSeller.address });
     const bondedBadId = regBonded.body.service.id;
     const bondBefore = await A.serviceBondOf(badSeller.address);
     let lastBad: any;
@@ -125,6 +132,30 @@ async function main() {
 
     // 12. …and the buyer is STILL never charged for the failure — the bond, not the buyer, pays the price
     check("the buyer was still NOT charged for the failed call", lastBad.status === 502 && lastBad.body.charged === false, `status=${lastBad.status}`);
+
+    console.log("\n[ownership — a stranger cannot borrow (or burn) someone else's bond]");
+
+    // 12b. an attacker lists a dead endpoint under the bonded seller's payTo WITHOUT their signature…
+    const victimBondBefore = await A.serviceBondOf(seller.address);
+    const grief = await post("/x402/services/register", { name: "Griefer", url: `${base}/seller-bad`, priceUsdc: 0.001, desc: "burns the victim's bond", payTo: seller.address });
+    check("an unsigned listing under someone else's payTo gets no credit for their bond",
+      grief.status === 200 && grief.body.service.ownerVerified === false && grief.body.service.bondUsdc === "0" && !grief.body.service.bonded && !!grief.body.verifyOwnership,
+      `bond shown=$${grief.body.service.bondUsdc}`);
+    let griefCall: any;
+    for (let i = 0; i < 4; i++) griefCall = await post(`/x402/tab/${tab.body.tabId}/call`, { service: grief.body.service.id, input: {} });
+    const victimBondAfter = await A.serviceBondOf(seller.address);
+    check("…and failing it can never slash the real owner's stake", victimBondAfter === victimBondBefore && !griefCall.body?.sellerSlashed, `victim bond $${fmtUsd(victimBondBefore)} → $${fmtUsd(victimBondAfter)}`);
+
+    // 12c. a wrong signature is refused; an owner-verified listing can't be rewritten without one
+    const forgedSig = await privateKeyToAccount(generatePrivateKey()).signMessage({ message: grief.body.verifyOwnership.message });
+    const forged = await post("/x402/services/register", { name: "Griefer", url: `${base}/seller-bad`, priceUsdc: 0.001, desc: "x", payTo: seller.address, signature: forgedSig });
+    const hijack = await post("/x402/services/register", { name: "Uppercase API", url: `${base}/seller-echo`, priceUsdc: 1, desc: "re-priced by a stranger", payTo: seller.address });
+    const stillPriced = (await get(`/x402/services/${svcId}`)).body.priceUsdc;
+    check("forged signatures are rejected; verified listings can't be hijacked", forged.status === 400 && hijack.status === 409 && stillPriced === "0.002", `forged=${forged.status}, hijack=${hijack.status}, price=$${stillPriced}`);
+
+    // 12d. re-registering keeps the track record (no wiping failures to reset trust)
+    const reReg = await post("/x402/services/register", { name: "Griefer", url: `${base}/seller-bad`, priceUsdc: 0.001, desc: "fresh start?", payTo: seller.address });
+    check("re-registering a listing keeps its failures (no trust reset)", reReg.body.service.stats.calls === 4 && reReg.body.service.stats.failures === 4, `calls=${reReg.body.service.stats.calls}, failures=${reReg.body.service.stats.failures}`);
 
     console.log("\n[Phase 3.1 — discovery: every service is a crawlable, indexable page]");
 
