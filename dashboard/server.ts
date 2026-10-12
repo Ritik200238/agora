@@ -4,6 +4,7 @@
 import express, { type Response } from "express";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { startChain } from "../test/harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
@@ -71,7 +72,7 @@ async function main() {
   });
 
   app.get("/api/info", (_req, res) =>
-    res.json({ network: process.env.AGORA_NETWORK || "localhost", market: marketKind, agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
+    res.json({ network: process.env.AGORA_NETWORK || "localhost", market: marketKind, arcDeployment: existsSync(join(__dirname, "..", "deployments", "arcTestnet.json")), agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
   );
   // shows a caller only their OWN connection headers — used to verify which hop the proxy chain trusts
   app.get("/api/whoami", (req, res) =>

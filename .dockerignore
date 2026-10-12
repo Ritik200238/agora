@@ -1,7 +1,8 @@
 node_modules
 artifacts
 cache
-deployments
+deployments/*
+!deployments/arcTestnet.json
 .git
 .github
 circle-agent
