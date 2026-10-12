@@ -119,9 +119,9 @@
 
   <div class="hero">
     <h1>Pay per call.<br><span class="accent">No subscription.</span></h1>
-    <p><strong>Open a tab</strong> — like a bar tab: pre-fund a spending cap, then pay <strong>sub-cent USDC</strong> for each call, down to <strong>$0.000001</strong>. Every call settles on-chain, and the cap is enforced so an agent can never overspend.</p>
+    <p><strong>Open a tab</strong> — like a bar tab: pre-fund a spending cap, then pay <strong>sub-cent USDC</strong> for each call, down to <strong>$0.000001</strong>. You're only charged when a call delivers, and the cap is enforced so an agent can never overspend.</p>
     <div class="net lab"><span class="ldot"></span><span id="net">connecting…</span></div>
-    <p class="lab" style="margin-top:12px;max-width:64ch;line-height:1.7;color:var(--label)">This demo settles on a free <strong style="color:var(--ink2)">local-EVM sandbox</strong> (instant &amp; always-on), so tx hashes shown here are local — <strong>not</strong> on Arcscan. Real tiny-USDC settlement is <strong style="color:var(--ink2)">proven on Arc Testnet</strong>: <a href="https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839" target="_blank" rel="noopener">verify the $0.000001 tx on Arcscan ↗</a>.</p>
+    <p class="lab" id="settleNote" style="margin-top:12px;max-width:64ch;line-height:1.7;color:var(--label)">This demo settles on a free <strong style="color:var(--ink2)">local-EVM sandbox</strong> (instant &amp; always-on), so tx hashes shown here are local — <strong>not</strong> on Arcscan. Real tiny-USDC settlement is <strong style="color:var(--ink2)">proven on Arc Testnet</strong>: <a href="https://testnet.arcscan.app/tx/0x29125d42028f32e6e3fd247f163b7f9cbe986a7cc01e596c3f52da48259de839" target="_blank" rel="noopener">verify the $0.000001 tx on Arcscan ↗</a>.</p>
   </div>
 
   <div id="tabCard" class="tab empty">
@@ -148,7 +148,7 @@
   <div class="sect-h"><h2>Your bill</h2><span class="lab" id="billCount">0 calls</span></div>
   <div class="bill" id="bill"><div class="empty">No calls yet — open a tab and call a service.</div></div>
 
-  <div class="foot lab">Real USDC settlement on-chain. Browse the <a href="/registry">marketplace</a> or watch the <a href="/">live economy</a>. On Arc, fund a real wallet at <a href="https://faucet.circle.com" target="_blank" rel="noopener">faucet.circle.com</a>.</div>
+  <div class="foot lab">Pay-per-call in USDC. Browse the <a href="/registry">marketplace</a> or watch the <a href="/">live economy</a>. On Arc, fund a real wallet at <a href="https://faucet.circle.com" target="_blank" rel="noopener">faucet.circle.com</a>.</div>
 </div>
 
 <script>
@@ -189,13 +189,19 @@ function buildInput(s){
   return out;
 }
 
-let SETTLE = 'local';
+let SETTLE = 'sandbox';
+const ON_ARC = () => SETTLE === 'circle-gateway';
 async function load(){
   try {
     const s = await (await fetch('/x402/services')).json();
     SETTLE = s.settlement;
-    $('net').textContent = `${s.settlement === 'arc' ? 'Arc Testnet' : 'Local EVM'} · pay-to ${s.payTo.slice(0,6)}…${s.payTo.slice(-4)}`;
-    if (!s.demoTabsEnabled){ $('openBtn').disabled = true; $('tabAddr').textContent = 'On Arc: fund a real wallet, then use the raw x402 API.'; }
+    $('net').textContent = `${ON_ARC() ? 'Arc Testnet · Circle Gateway' : 'Sandbox chain'} · pay-to ${s.payTo.slice(0,6)}…${s.payTo.slice(-4)}`;
+    if (ON_ARC()){
+      $('settleNote').innerHTML = 'Live on <strong style="color:var(--ink2)">Arc Testnet</strong>: your tab is a real USDC deposit into <strong style="color:var(--ink2)">Circle Gateway</strong>, and every call is a real gasless nanopayment from it — charged only if the call delivers. Each call returns a Circle transfer ID; Circle batches the transfers onto Arc. Agents with their own wallet can pay any service directly via standard x402 at <code>/x402/arc/:service</code>.';
+      $('capInput').disabled = true; $('capInput').value = '0.01'; $('capInput').title = 'free demo credit per tab on Arc';
+      $('tabAddr').textContent = 'no tab yet · free $0.01 of real testnet USDC, deposited into Circle Gateway';
+    }
+    if (!s.demoTabsEnabled){ $('openBtn').disabled = true; $('tabAddr').textContent = 'Demo tabs are off — pay from your own Arc wallet via /x402/arc/:service.'; }
     SERVICES = s.services;
     $('svcs').innerHTML = SERVICES.map(s => `
       <div class="svc" data-id="${esc(s.id)}">
@@ -210,7 +216,8 @@ async function load(){
 }
 
 async function openTab(){
-  $('openBtn').disabled = true; $('openBtn').textContent = 'Opening…';
+  $('openBtn').disabled = true; $('openBtn').textContent = ON_ARC() ? 'Funding on Arc…' : 'Opening…';
+  if (ON_ARC()) $('tabAddr').textContent = 'depositing real USDC into Circle Gateway on Arc — usually instant, up to ~30s if none are pre-funded…';
   $('tabErr').style.display = 'none';
   try {
     const cap = Math.min(Math.max(+$('capInput').value || 0.1, 0.001), 5);
@@ -219,7 +226,8 @@ async function openTab(){
     TAB = { tabId: t.tabId, capUsdc: +t.capUsdc };
     const card = $('tabCard'); card.classList.remove('empty');
     $('tabTitle').textContent = 'Tab · ' + t.address.slice(0, 8) + '…'; // the tabId is a spend key — keep it off screen
-    $('tabAddr').textContent = t.address;
+    if (t.depositUrl){ $('tabAddr').innerHTML = esc(t.address) + ' · <a href="' + esc(t.depositUrl) + '" target="_blank" rel="noopener" style="color:var(--green)">Gateway deposit on Arcscan ↗</a>'; }
+    else $('tabAddr').textContent = t.address;
     $('tabBig').style.display = ''; $('capbarWrap').style.display = ''; $('capMeta').style.display = '';
     updateTab(0, +t.capUsdc);
   } catch(e){ const el = $('tabErr'); el.textContent = 'Could not open tab: ' + e.message; el.style.display = ''; }
@@ -246,7 +254,7 @@ async function callSvc(id){
     const res = await (await fetch(`/x402/tab/${TAB.tabId}/call`, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ service:id, input: buildInput(svc) }) })).json();
     if (res.error){ out.className = 'out show err'; out.textContent = res.error; return; }
     out.className = 'out show';
-    out.textContent = 'result: ' + JSON.stringify(res.result) + '\npaid ' + money(res.paidUsdc) + '  ·  tx ' + res.tx.slice(0,14) + '…';
+    out.textContent = 'result: ' + JSON.stringify(res.result) + '\npaid ' + money(res.paidUsdc) + '  ·  ' + (res.settlement === 'circle-gateway' ? 'Circle transfer ' : 'tx ') + res.tx.slice(0,14) + '…';
     updateTab(+res.tab.spentUsdc, +res.tab.capUsdc);
     addBill(id, res.paidUsdc, res.tx);
   } catch(e){ out.className = 'out show err'; out.textContent = e.message; }
@@ -258,9 +266,9 @@ function addBill(service, price, tx){
   BILL.unshift({ service, price, tx });
   $('billCount').textContent = BILL.length + (BILL.length === 1 ? ' call' : ' calls');
   $('bill').innerHTML = BILL.map(b => {
-    const txCell = SETTLE === 'arc'
-      ? `<a class="tx txlink" href="https://testnet.arcscan.app/tx/${b.tx}" target="_blank" rel="noopener" title="view on Arcscan">${b.tx.slice(0,10)}… ↗</a>`
-      : `<span class="tx" title="local-EVM sandbox tx — not on Arcscan">${b.tx.slice(0,10)}… · local</span>`;
+    const txCell = ON_ARC()
+      ? `<span class="tx" title="Circle Gateway transfer ${esc(b.tx)} — settled by Circle, batched onto Arc">${esc(b.tx.slice(0,8))}… · Circle</span>`
+      : `<span class="tx" title="sandbox-chain tx — not on Arcscan">${esc(b.tx.slice(0,10))}… · sandbox</span>`;
     return `<div class="row"><span class="s">${esc(svcName({id:b.service, name: (SERVICES.find(x=>x.id===b.service)||{}).name}))}</span><span class="p">${money(b.price)}</span>${txCell}</div>`;
   }).join('');
 }
