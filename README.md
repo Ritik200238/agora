@@ -123,12 +123,14 @@ We didn't just build a marketplace — we ran a full **12-agent economy** throug
 1. **Consumers** post USDC-funded needs — gated by a **treasury spend-firewall**.
 2. A **Broker** collects competitive **quotes** and routes each job to the best value (price × reputation) —
    price is **discovered**, not fixed; expensive jobs get priced out.
-3. **Workers** deliver objective, re-executable work; a **Validator** independently **re-executes** and the
-   contract derives the verdict on-chain.
+3. **Workers** accept a job's terms on-chain (that's what locks their collateral) and deliver objective,
+   re-executable work; a **curated Validator** independently **re-executes** and the contract derives the
+   verdict on-chain. If a validator never answers, the job unwinds after 24h — no funds are ever stranded.
 4. The **JobBoard escrow** settles: pass → pay + raise reputation; fail → **refund the client, slash the
    worker's locked USDC bond, tank its reputation.**
-5. A **Lender** runs a reputation-backed **credit market** — reputable workers borrow against their on-chain
-   reputation and repay with interest.
+5. A **Lender** runs a **credit market** — workers borrow against their track record and repay with interest.
+   Credit is sized at 2× the validator fees sunk into a worker's completed jobs, against 60% collateral, so
+   **defaulting never pays** (a fresh wallet gets $0). Lenders hold shares: interest and losses split pro rata.
 
 **Emergent result:** prices move with supply/demand; honest workers earn *and* borrow; a fraudster is slashed
 once and **frozen out**; a hijacked agent that tries to drain funds is **blocked by the firewall**. Watch it
@@ -195,13 +197,16 @@ Handy scripts: `npm run test:services` (real weather/FX/email), `npm run test:wa
 
 ## 🧪 What's verified (actually run, not stubbed)
 
-- **32 Hardhat contract tests** — escrow lifecycle, payout splits, **fraud→slash of the locked bond**,
-  **marketplace bond slashing**, the **buyer-protection insurance pool**, enforced collateral, self-deal &
-  owner-rug guards, soulbound passports, and the reputation **credit market**.
-- **7 end-to-end suites** against a real spawned chain — the **economy** (`test/e2e.ts`), the **pay-per-use
+- **50 Hardhat contract tests** — escrow lifecycle with worker consent, payout splits, **fraud→slash of the
+  locked bond**, validator timeouts, the curated validator set, **marketplace bond slashing** (incl. no
+  slash-dodging via unbond), the **capped insurance pool**, the **credit market** (sybil drain closed, defaults
+  unprofitable, pro-rata lender shares), self-deal & re-entrancy guards, soulbound passports.
+- **Security suites** — rate limiting on the real client IP (`test/ratelimit.ts`) and the seller-URL SSRF
+  guard (`test/egress.ts`).
+- **8 end-to-end suites** against a real spawned chain — the **economy** (`test/e2e.ts`), the **pay-per-use
   gateway** (`test/gateway.ts`), the **multi-tenant marketplace** (`test/registry.ts`), **seeded bonded
   services** (`test/seed.ts`), the **warranty/insurance** flow (`test/warranty.ts`), the durable **Postgres**
-  store (`test/pgstore.ts`), and the agent **MCP** (`test/mcp.ts`).
+  store (`test/pgstore.ts`), the **paywall** (`test/paywall.ts`), and the agent **MCP** (`test/mcp.ts`).
 - **Real Arc Testnet** — contracts deployed, tiny-USDC settled on-chain down to **$0.000001** (verified on
   Arcscan, linked above). CI runs the whole suite on every push.
 
