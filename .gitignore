@@ -2,7 +2,8 @@ node_modules/
 artifacts/
 cache/
 typechain-types/
-deployments/
+deployments/*
+!deployments/arcTestnet.json
 .env
 .env.local
 *.log

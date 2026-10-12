@@ -1,0 +1,23 @@
+{
+  "network": "arcTestnet",
+  "chainId": 5042002,
+  "usdc": "0x3600000000000000000000000000000000000000",
+  "usdcIsMock": false,
+  "treasury": "0x74f4ca435A40231C67057FdE73734264Ccc05d79",
+  "identity": "0x744a6B4E1dD0A450b6985b38566d42003475D586",
+  "reputation": "0x8f3E5b55b2fc79CF94770c29F1ad79CbAb5dB067",
+  "validation": "0x4bf5ef67Bf3b417BeB337D80eD25a654B0e67B21",
+  "bond": "0x11E6Ed88458a405140Fc660E1e238116535D7154",
+  "jobBoard": "0x8374aA3e1b449d75A2475E2A3eCDc5DDc9BaBF64",
+  "lendingPool": "0x7EA5521596c931cfd24a39CB88F194de2b5e0FaF",
+  "serviceBond": "0x53391867375618C83f9F1752CAF9A8F92Cac84AF",
+  "insurancePool": "0x74f4ca435A40231C67057FdE73734264Ccc05d79",
+  "gatewayOperator": "0xcbb3FEb3655474873B7eABC71Af6B74CE3FD9964",
+  "admin": "0xcbb3FEb3655474873B7eABC71Af6B74CE3FD9964",
+  "unbondDelaySeconds": 259200,
+  "insuranceCaps": {
+    "maxPayoutUnits": "5000000",
+    "maxPerDayUnits": "50000000"
+  },
+  "deployer": "0xcbb3FEb3655474873B7eABC71Af6B74CE3FD9964"
+}
