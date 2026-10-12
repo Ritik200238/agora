@@ -33,6 +33,7 @@ async function main() {
     console.log("\n[1] register agents");
     await A.registerAgent(client, "consumer", "ipfs://client");
     await A.registerAgent(worker, "worker", "ipfs://worker");
+    await A.approveValidator(deployer, validator.account.address); // curated validator set
     await A.registerAgent(validator, "validator", "ipfs://validator");
     await A.registerAgent(fraud, "worker", "ipfs://fraud");
     await A.registerAgent(producer, "producer", "ipfs://producer");
@@ -61,6 +62,7 @@ async function main() {
       workerId, validatorId, brokerId: 0n, brokerFeeBps: 0, validatorFeeBps: 300,
       amount: usd(10), deadline, specHash: H32("11"),
     });
+    await A.acceptJob(worker, job1); // the worker agrees to the terms → its collateral locks
     const w0 = await usdcBalance(D.usdc, worker.account.address);
     await A.submitJob(worker, job1, H32("22"));
     await A.validateJob(validator, job1, H32("22")); // validator's recomputed hash matches → pass
@@ -74,6 +76,7 @@ async function main() {
       workerId: fraudId, validatorId, brokerId: 0n, brokerFeeBps: 0, validatorFeeBps: 0,
       amount: usd(8), deadline, specHash: H32("33"),
     });
+    await A.acceptJob(fraud, job2);
     const fb0 = await A.bondOf(fraud.account.address);
     await A.submitJob(fraud, job2, H32("44"));
     await A.validateJob(validator, job2, H32("99")); // recomputed hash differs → fail → slash

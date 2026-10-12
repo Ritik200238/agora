@@ -21,6 +21,9 @@ function read(address: `0x${string}`, abi: any[], functionName: string, args: an
 }
 
 // ---------- Identity (ERC-8004) ----------
+/** Admin admits (or revokes) a wallet into the curated validator set — required before it can register as one. */
+export const approveValidator = (admin: Wallet, wallet: `0x${string}`, approved = true) =>
+  send(admin, dep().identity, ABIS.IdentityRegistry, "setValidatorApproval", [wallet, approved]);
 export const registerAgent = (w: Wallet, role: string, uri: string) =>
   send(w, dep().identity, ABIS.IdentityRegistry, "register", [role, uri]);
 export const agentOf = (addr: `0x${string}`) =>
@@ -57,8 +60,11 @@ export const bondOf = (addr: `0x${string}`) =>
 /** Seller stakes USDC behind their listed service (approve the ServiceBond first). */
 export const serviceBondPost = (w: Wallet, amount: bigint) =>
   send(w, dep().serviceBond, ABIS.ServiceBond, "bond", [amount]);
-export const serviceBondUnbond = (w: Wallet, amount: bigint) =>
-  send(w, dep().serviceBond, ABIS.ServiceBond, "unbond", [amount]);
+/** Start withdrawing stake: it leaves the active bond now, stays slashable, and is collectable after the delay. */
+export const serviceBondRequestUnbond = (w: Wallet, amount: bigint) =>
+  send(w, dep().serviceBond, ABIS.ServiceBond, "requestUnbond", [amount]);
+export const serviceBondWithdrawUnbonded = (w: Wallet) =>
+  send(w, dep().serviceBond, ABIS.ServiceBond, "withdrawUnbonded", []);
 /** How much USDC a seller (payTo address) has staked behind their service. */
 export const serviceBondOf = (addr: `0x${string}`) =>
   read(dep().serviceBond, ABIS.ServiceBond, "bondOf", [addr]) as Promise<bigint>;
@@ -116,6 +122,17 @@ export async function postJob(w: Wallet, p: PostJobParams): Promise<bigint> {
   throw new Error("JobPosted event not found in receipt");
 }
 
+/** The named worker agrees to a proposed job's terms (locks its collateral). */
+export const acceptJob = (w: Wallet, jobId: bigint) =>
+  send(w, dep().jobBoard, ABIS.JobBoard, "accept", [jobId]);
+export const cancelJob = (w: Wallet, jobId: bigint) =>
+  send(w, dep().jobBoard, ABIS.JobBoard, "cancel", [jobId]);
+export const timeoutValidation = (w: Wallet, jobId: bigint) =>
+  send(w, dep().jobBoard, ABIS.JobBoard, "timeoutValidation", [jobId]);
+/** Validator fees sunk into an agent's completed work — what its credit limit is sized from. */
+export const creditBasis = (agentId: bigint) =>
+  read(dep().jobBoard, ABIS.JobBoard, "creditBasis", [agentId]) as Promise<bigint>;
+
 export const submitJob = (w: Wallet, jobId: bigint, deliverable: `0x${string}`) =>
   send(w, dep().jobBoard, ABIS.JobBoard, "submit", [jobId, deliverable]);
 /** Validator submits its INDEPENDENTLY re-executed answer hash; the contract derives pass/fail. */
@@ -129,7 +146,7 @@ export const lockedBond = (addr: `0x${string}`) =>
 export const expireJob = (w: Wallet, jobId: bigint) =>
   send(w, dep().jobBoard, ABIS.JobBoard, "expire", [jobId]);
 
-export const JOB_STATUS = ["None", "Open", "Submitted", "Completed", "Rejected", "Expired"] as const;
+export const JOB_STATUS = ["None", "Open", "Submitted", "Completed", "Rejected", "Expired", "Proposed", "Cancelled"] as const;
 export async function getJob(jobId: bigint) {
   const j = (await read(dep().jobBoard, ABIS.JobBoard, "getJob", [jobId])) as any;
   return {

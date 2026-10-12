@@ -10,15 +10,23 @@ import {ValidationRegistry} from "./ValidationRegistry.sol";
 import {ReputationBond} from "./ReputationBond.sol";
 
 /// @title JobBoard — ERC-8183-style escrow wired to a REAL trust layer.
-/// @notice Hardened lifecycle: a client funds USDC escrow; the worker must hold collateral, which is
-///         LOCKED for the job; the validator independently re-executes and submits its answer hash; the
-///         contract DERIVES the verdict on-chain (deliverable == validator's hash). Pass → pay + raise
-///         reputation + unlock bond. Fail → refund client + slash the locked bond to a neutral treasury +
-///         tank reputation. Slashed collateral never flows to a job party (no self-deal profit).
+/// @notice Lifecycle: a client funds USDC escrow and PROPOSES the job to a worker → the worker ACCEPTS the
+///         terms, which locks its collateral → the worker submits → a curated validator independently
+///         re-executes and submits its answer hash; the contract DERIVES the verdict (deliverable == validator's
+///         hash). Pass → pay + raise reputation + unlock bond. Fail → refund client + slash the locked bond to a
+///         neutral treasury + tank reputation. Every state has an exit, so no funds can be stranded:
+///           Proposed  → accept | cancel (client) | expire after deadline (refund, no penalty: never agreed)
+///           Open      → submit | expire after deadline (refund, unlock, small rep hit: a no-show)
+///           Submitted → validate | timeoutValidation after VALIDATION_WINDOW (refund, unlock, no penalty:
+///                       the validator failed, not the worker)
+/// @dev    Worker consent closes three griefing vectors of the old "client names any worker" design: locking a
+///         stranger's bond until an arbitrary deadline, docking their reputation via expiry, and imposing fee
+///         terms they never agreed to.
 contract JobBoard is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    enum Status { None, Open, Submitted, Completed, Rejected, Expired }
+    // New states are APPENDED so existing status codes (Open=1 … Expired=5) keep their meaning off-chain.
+    enum Status { None, Open, Submitted, Completed, Rejected, Expired, Proposed, Cancelled }
 
     struct Job {
         uint256 clientId;
@@ -28,8 +36,9 @@ contract JobBoard is ReentrancyGuard {
         uint16 brokerFeeBps;
         uint16 validatorFeeBps;
         uint256 amount;
-        uint256 bondLocked; // worker collateral reserved for this job
+        uint256 bondLocked; // worker collateral reserved for this job (set on accept)
         uint64 deadline;
+        uint64 submittedAt;
         bytes32 specHash;
         bytes32 deliverable;
         uint256 validationId;
@@ -41,10 +50,14 @@ contract JobBoard is ReentrancyGuard {
     ReputationRegistry public immutable reputation;
     ValidationRegistry public immutable validation;
     ReputationBond public immutable bond;
-    address public immutable treasury; // neutral sink for slashed collateral
+    address public immutable treasury; // neutral sink for slashed collateral (the buyer-protection pool)
 
     uint256 public nextJobId = 1;
     mapping(uint256 => Job) public jobs;
+
+    /// @notice Validator fees paid on each worker's COMPLETED jobs. Those fees go to a curated third party, so
+    ///         they are a cost nobody can route back to themselves — the LendingPool sizes credit off this.
+    mapping(uint256 => uint256) public creditBasis;
 
     uint256 public totalSettled;
     uint256 public jobsCompleted;
@@ -55,13 +68,17 @@ contract JobBoard is ReentrancyGuard {
     int256 public constant REP_PASS = 10;
     int256 public constant REP_FAIL = -25;
     int256 public constant REP_EXPIRE = -5;
-    bytes32 private constant VALIDATOR_ROLE = keccak256(bytes("validator"));
+    uint64 public constant MAX_DURATION = 30 days; // a job can't park a worker's bond indefinitely
+    uint64 public constant VALIDATION_WINDOW = 1 days; // after this, an unanswered submission can be unwound
 
-    event JobPosted(uint256 indexed jobId, uint256 indexed clientId, uint256 indexed workerId, uint256 brokerId, uint256 amount, uint256 bondLocked, bytes32 specHash);
+    event JobPosted(uint256 indexed jobId, uint256 indexed clientId, uint256 indexed workerId, uint256 brokerId, uint256 amount, uint256 bondRequired, bytes32 specHash);
+    event JobAccepted(uint256 indexed jobId, uint256 workerId, uint256 bondLocked);
+    event JobCancelled(uint256 indexed jobId, uint256 refunded);
     event JobSubmitted(uint256 indexed jobId, uint256 workerId, bytes32 deliverable, uint256 validationId);
     event JobCompleted(uint256 indexed jobId, uint256 workerId, uint256 workerPay, uint256 brokerFee, uint256 validatorFee);
     event JobRejected(uint256 indexed jobId, uint256 workerId, uint256 refunded, uint256 slashed);
     event JobExpired(uint256 indexed jobId, uint256 workerId, uint256 refunded);
+    event ValidationTimedOut(uint256 indexed jobId, uint256 validatorId, uint256 refunded);
 
     constructor(
         IERC20 _usdc,
@@ -80,7 +97,13 @@ contract JobBoard is ReentrancyGuard {
         treasury = _treasury;
     }
 
-    /// @notice Client posts a job (approve `amount` USDC first). The worker's collateral is LOCKED here.
+    /// @notice The worker collateral a job of `amount` requires (locked on accept, slashed on proven fraud).
+    function bondRequired(uint256 amount) public pure returns (uint256) {
+        return amount / 2;
+    }
+
+    /// @notice Client proposes a job (approve `amount` USDC first). Escrow is funded now; the worker's
+    ///         collateral is only locked once the worker accepts.
     function postJob(
         uint256 workerId,
         uint256 validatorId,
@@ -101,18 +124,16 @@ contract JobBoard is ReentrancyGuard {
             brokerId == 0 || (brokerId != clientId && brokerId != workerId && brokerId != validatorId),
             "broker not distinct"
         );
-        if (brokerId != 0) identity.ownerOf(brokerId); // fail-fast on a bogus/unregistered broker
-        // The validator must be a registered validator-role agent (disinterested third party).
-        require(keccak256(bytes(identity.role(validatorId))) == VALIDATOR_ROLE, "validator role required");
+        identity.ownerOf(workerId); // fail-fast on an unregistered worker
+        if (brokerId != 0) identity.ownerOf(brokerId); // …or broker
+        // The validator must be a CURRENTLY approved member of the curated validator set.
+        require(identity.isValidator(validatorId), "validator role required");
         require(amount > 0, "amount=0");
+        require(bondRequired(amount) > 0, "amount too small to collateralize");
         require(uint256(brokerFeeBps) + uint256(validatorFeeBps) <= 5000, "fees too high");
         require(deadline > block.timestamp, "deadline past");
+        require(deadline <= block.timestamp + MAX_DURATION, "deadline too far");
         if (brokerId == 0) require(brokerFeeBps == 0, "broker fee w/o broker");
-
-        // Reputation-as-collateral, ENFORCED: lock the slashable penalty from the worker's free bond.
-        uint256 reqBond = amount / 2;
-        require(reqBond > 0, "amount too small to collateralize");
-        bond.lock(identity.ownerOf(workerId), reqBond); // reverts if the worker lacks free collateral
 
         jobId = nextJobId++;
         jobs[jobId] = Job({
@@ -123,16 +144,41 @@ contract JobBoard is ReentrancyGuard {
             brokerFeeBps: brokerFeeBps,
             validatorFeeBps: validatorFeeBps,
             amount: amount,
-            bondLocked: reqBond,
+            bondLocked: 0,
             deadline: deadline,
+            submittedAt: 0,
             specHash: specHash,
             deliverable: bytes32(0),
             validationId: 0,
-            status: Status.Open
+            status: Status.Proposed
         });
 
         usdc.safeTransferFrom(msg.sender, address(this), amount);
-        emit JobPosted(jobId, clientId, workerId, brokerId, amount, reqBond, specHash);
+        emit JobPosted(jobId, clientId, workerId, brokerId, amount, bondRequired(amount), specHash);
+    }
+
+    /// @notice The named worker agrees to the terms. Reputation-as-collateral, ENFORCED: the slashable penalty
+    ///         is locked from the worker's free bond here (reverts if it lacks the collateral).
+    function accept(uint256 jobId) external nonReentrant {
+        Job storage j = jobs[jobId];
+        require(j.status == Status.Proposed, "not proposed");
+        require(identity.ownerOf(j.workerId) == msg.sender, "not worker");
+        require(block.timestamp <= j.deadline, "past deadline");
+        uint256 reqBond = bondRequired(j.amount);
+        j.bondLocked = reqBond;
+        j.status = Status.Open;
+        bond.lock(msg.sender, reqBond);
+        emit JobAccepted(jobId, j.workerId, reqBond);
+    }
+
+    /// @notice The client withdraws a proposal the worker hasn't accepted yet (full refund).
+    function cancel(uint256 jobId) external nonReentrant {
+        Job storage j = jobs[jobId];
+        require(j.status == Status.Proposed, "not proposed");
+        require(identity.ownerOf(j.clientId) == msg.sender, "not client");
+        j.status = Status.Cancelled;
+        usdc.safeTransfer(msg.sender, j.amount);
+        emit JobCancelled(jobId, j.amount);
     }
 
     function submit(uint256 jobId, bytes32 deliverable) external {
@@ -141,6 +187,7 @@ contract JobBoard is ReentrancyGuard {
         require(identity.ownerOf(j.workerId) == msg.sender, "not worker");
         require(block.timestamp <= j.deadline, "past deadline");
         j.deliverable = deliverable;
+        j.submittedAt = uint64(block.timestamp);
         j.status = Status.Submitted;
         j.validationId = validation.request(jobId, j.workerId, deliverable);
         emit JobSubmitted(jobId, j.workerId, deliverable, j.validationId);
@@ -152,6 +199,7 @@ contract JobBoard is ReentrancyGuard {
         Job storage j = jobs[jobId];
         require(j.status == Status.Submitted, "not submitted");
         require(identity.ownerOf(j.validatorId) == msg.sender, "not validator");
+        require(block.timestamp <= uint256(j.submittedAt) + VALIDATION_WINDOW, "validation window closed");
 
         bool passed = (validatorAnswerHash == j.deliverable);
         validation.respond(j.validationId, j.validatorId, passed);
@@ -167,6 +215,7 @@ contract JobBoard is ReentrancyGuard {
             j.status = Status.Completed;
             jobsCompleted += 1;
             totalSettled += j.amount; // full escrow settled to provider(s): worker + broker + validator
+            creditBasis[j.workerId] += validatorFee;
             bond.unlock(workerW, j.bondLocked);
             reputation.giveFeedback(j.workerId, REP_PASS, true, ref);
             if (j.brokerId != 0) reputation.giveFeedback(j.brokerId, REP_PASS / 5, true, ref);
@@ -187,22 +236,43 @@ contract JobBoard is ReentrancyGuard {
         }
     }
 
-    /// @notice After the deadline, an UNCLAIMED (Open, never-submitted) job can be expired: refund the
-    ///         client, unlock the worker's bond (a no-show is not proven fraud), ding reputation.
-    /// @dev    Only `Open` jobs expire. A `Submitted` job must be resolved by `validate()` (which has no
-    ///         deadline) — otherwise a worker could front-run the validator past the deadline to downgrade a
-    ///         deserved slash into a no-fault refund.
+    /// @notice After the deadline, a job that never reached submission can be expired by anyone: the client is
+    ///         refunded. An accepted (Open) job also unlocks the worker's bond and dings reputation (a no-show is
+    ///         not proven fraud); an un-accepted (Proposed) job carries no penalty — the worker never agreed.
+    /// @dev    A `Submitted` job can't expire here (a worker could otherwise race the validator past the deadline
+    ///         to downgrade a deserved slash); it resolves via validate() or timeoutValidation().
     function expire(uint256 jobId) external nonReentrant {
         Job storage j = jobs[jobId];
-        require(j.status == Status.Open, "only open jobs are expirable");
+        require(j.status == Status.Open || j.status == Status.Proposed, "only open jobs are expirable");
         require(block.timestamp > j.deadline, "not past deadline");
 
+        address clientW = identity.ownerOf(j.clientId);
+        if (j.status == Status.Proposed) {
+            j.status = Status.Cancelled;
+            usdc.safeTransfer(clientW, j.amount);
+            emit JobCancelled(jobId, j.amount);
+            return;
+        }
         j.status = Status.Expired;
         jobsExpired += 1;
         bond.unlock(identity.ownerOf(j.workerId), j.bondLocked);
         reputation.giveFeedback(j.workerId, REP_EXPIRE, false, bytes32(jobId));
-        usdc.safeTransfer(identity.ownerOf(j.clientId), j.amount);
+        usdc.safeTransfer(clientW, j.amount);
         emit JobExpired(jobId, j.workerId, j.amount);
+    }
+
+    /// @notice If the validator hasn't answered within VALIDATION_WINDOW of submission, anyone can unwind the
+    ///         job: the client is refunded and the worker's bond unlocked, with no reputation change for either
+    ///         (the validator failed). Without this, a lost or unresponsive validator froze both forever.
+    function timeoutValidation(uint256 jobId) external nonReentrant {
+        Job storage j = jobs[jobId];
+        require(j.status == Status.Submitted, "not submitted");
+        require(block.timestamp > uint256(j.submittedAt) + VALIDATION_WINDOW, "validation window open");
+        j.status = Status.Expired;
+        jobsExpired += 1;
+        bond.unlock(identity.ownerOf(j.workerId), j.bondLocked);
+        usdc.safeTransfer(identity.ownerOf(j.clientId), j.amount);
+        emit ValidationTimedOut(jobId, j.validatorId, j.amount);
     }
 
     function getJob(uint256 jobId) external view returns (Job memory) {

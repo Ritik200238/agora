@@ -16,17 +16,25 @@ contract ValidationRegistry {
     }
 
     address public jobBoard;
+    address public immutable deployer; // the only account allowed to bind the JobBoard (no front-running it)
     uint256 public nextId = 1;
     mapping(uint256 => Validation) public validations;
 
     event ValidationRequested(uint256 indexed id, uint256 indexed jobId, uint256 worker, bytes32 deliverable);
     event ValidationResponded(uint256 indexed id, uint256 indexed jobId, uint256 validator, bool passed);
+    event Initialized(address indexed jobBoard);
 
-    /// @notice One-time binding of the authorized JobBoard.
+    constructor() {
+        deployer = msg.sender;
+    }
+
+    /// @notice One-time binding of the authorized JobBoard, by the deployer only.
     function initialize(address _jobBoard) external {
+        require(msg.sender == deployer, "only deployer");
         require(jobBoard == address(0), "already initialized");
         require(_jobBoard != address(0), "zero");
         jobBoard = _jobBoard;
+        emit Initialized(_jobBoard);
     }
 
     modifier onlyJobBoard() {

@@ -25,6 +25,9 @@ async function main() {
       if (eco.tickN === 4) await eco.injectFraud();
       if (eco.tickN === 8) eco.hijackAttempt("Nova-1");
     }
+    // Credit is earned, not given: a worker only qualifies once validator fees on its completed jobs back the
+    // limit, so the first loan can land late in the run. Let one full borrow → repay cycle (6 ticks) finish.
+    for (let i = 0; i < 12 && eco.creditLoans > 0 && eco.creditRepaid === 0; i++) await eco.tick();
 
     const snap = await eco.snapshot();
     const econ = await A.economy();

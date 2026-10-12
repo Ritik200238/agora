@@ -40,8 +40,10 @@ export async function buildSociety(cast: AgentConfig[] = DEFAULT_CAST): Promise<
   const D = dep();
   const agents = cast.map((c) => new Agent(c, AGENT_BUDGET(), AGENT_RATECAP()));
 
-  // register + fund
+  // register + fund. Validators are a curated set: the registry admin (the deployer = faucet key on the local
+  // chain) must admit each validator wallet before it can claim the role.
   for (const a of agents) {
+    if (a.role === "validator") await A.approveValidator(faucet, a.address);
     await A.registerAgent(a.wallet, a.role, `agora://agent/${a.name}`);
     a.agentId = await A.agentOf(a.address);
     await usdcMint(faucet, D.usdc, a.address, AGENT_FUNDING());

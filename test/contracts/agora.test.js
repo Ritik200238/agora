@@ -32,6 +32,7 @@ describe("Agora contracts (hardened)", function () {
     await bond.setManager(jobBoard.target, true);
     await validation.initialize(jobBoard.target);
 
+    await identity.setValidatorApproval(validatorAcct.address, true); // curated validator set
     await identity.connect(client).register("consumer", "ipfs://client");
     await identity.connect(worker).register("worker", "ipfs://worker");
     await identity.connect(validatorAcct).register("validator", "ipfs://validator");
@@ -55,11 +56,16 @@ describe("Agora contracts (hardened)", function () {
     await bond.connect(fraud).postBond(usd(20));
   });
 
-  async function postJob(workerAgentId, amount, brokerAgentId = 0n, brokerBps = 0, valBps = 0, ttl = 3600) {
+  const signerFor = (id) => ({ [workerId]: worker, [fraudId]: fraud, [unbondedId]: unbonded })[id];
+
+  /** Client proposes a job; by default the named worker accepts it (locking its collateral). */
+  async function postJob(workerAgentId, amount, brokerAgentId = 0n, brokerBps = 0, valBps = 0, ttl = 3600, accept = true) {
     const deadline = (await time.latest()) + ttl;
     await usdc.connect(client).approve(jobBoard.target, amount);
     await jobBoard.connect(client).postJob(workerAgentId, validatorId, brokerAgentId, brokerBps, valBps, amount, deadline, ethers.id("spec"));
-    return (await jobBoard.nextJobId()) - 1n;
+    const jobId = (await jobBoard.nextJobId()) - 1n;
+    if (accept) await jobBoard.connect(signerFor(workerAgentId)).accept(jobId);
+    return jobId;
   }
 
   describe("Identity (soulbound)", () => {
@@ -113,9 +119,13 @@ describe("Agora contracts (hardened)", function () {
   });
 
   describe("Reputation-as-collateral is enforced", () => {
-    it("postJob reverts if the worker lacks free collateral", async () => {
-      // unbonded worker has no bond → cannot be hired
-      await expect(postJob(unbondedId, usd(10))).to.be.revertedWith("insufficient free bond");
+    it("a worker without free collateral cannot accept (and the client can cancel for a full refund)", async () => {
+      const jobId = await postJob(unbondedId, usd(10), 0n, 0, 0, 3600, false);
+      await expect(jobBoard.connect(unbonded).accept(jobId)).to.be.revertedWith("insufficient free bond");
+      const c0 = await usdc.balanceOf(client.address);
+      await jobBoard.connect(client).cancel(jobId);
+      expect((await usdc.balanceOf(client.address)) - c0).to.equal(usd(10));
+      expect((await jobBoard.getJob(jobId)).status).to.equal(7n); // Cancelled
     });
     it("locked bond cannot be withdrawn mid-job (closes the slash-bypass)", async () => {
       await postJob(workerId, usd(10)); // locks usd(5)
@@ -140,6 +150,19 @@ describe("Agora contracts (hardened)", function () {
         jobBoard.connect(client).postJob(workerId, clientId, 0n, 0, 0, usd(2), deadline, ethers.id("s"))
       ).to.be.revertedWith("validator == client");
     });
+    it("an unapproved wallet cannot register as a validator (no self-declared validators)", async () => {
+      await expect(identity.connect(owner).register("validator", "ipfs://self")).to.be.revertedWith("validator not approved");
+      await expect(identity.connect(client).setValidatorApproval(client.address, true)).to.be.revertedWithCustomError(identity, "OwnableUnauthorizedAccount");
+    });
+    it("a revoked validator can no longer be named on new jobs", async () => {
+      await identity.setValidatorApproval(validatorAcct.address, false);
+      expect(await identity.isValidator(validatorId)).to.equal(false);
+      const deadline = (await time.latest()) + 3600;
+      await usdc.connect(client).approve(jobBoard.target, usd(2));
+      await expect(
+        jobBoard.connect(client).postJob(workerId, validatorId, 0n, 0, 0, usd(2), deadline, ethers.id("s"))
+      ).to.be.revertedWith("validator role required");
+    });
     it("rejects a validator that is not a validator-role agent", async () => {
       const deadline = (await time.latest()) + 3600;
       await usdc.connect(client).approve(jobBoard.target, usd(2));
@@ -151,6 +174,18 @@ describe("Agora contracts (hardened)", function () {
   });
 
   describe("Authorization & rug-resistance", () => {
+    it("ValidationRegistry can only be bound by its deployer, once", async () => {
+      const v2 = await deploy("ValidationRegistry");
+      await expect(v2.connect(client).initialize(client.address)).to.be.revertedWith("only deployer");
+      await expect(validation.initialize(client.address)).to.be.revertedWith("already initialized");
+    });
+    it("a contract wallet cannot re-enter register() to mint itself a second passport", async () => {
+      const probe = await deploy("ReentrantRegistrant", identity.target);
+      await probe.go();
+      expect(await probe.reentered()).to.equal(true);
+      expect(await probe.reentrySucceeded()).to.equal(false);
+      expect(await identity.balanceOf(probe.target)).to.equal(1n);
+    });
     it("ValidationRegistry is writable only by the JobBoard", async () => {
       await expect(validation.connect(owner).request(1, 1, ethers.id("x"))).to.be.revertedWith("only jobBoard");
     });
@@ -181,6 +216,62 @@ describe("Agora contracts (hardened)", function () {
       expect(await bond.locked(worker.address)).to.equal(0n);
       expect(await reputation.scoreOf(workerId)).to.equal(-5n);
       expect((await jobBoard.getJob(jobId)).status).to.equal(5n);
+    });
+  });
+
+  describe("Worker consent (no griefing a stranger's bond or reputation)", () => {
+    it("a proposal locks nothing until the worker accepts", async () => {
+      const jobId = await postJob(workerId, usd(10), 0n, 0, 0, 3600, false);
+      expect(await bond.locked(worker.address)).to.equal(0n);
+      expect((await jobBoard.getJob(jobId)).status).to.equal(6n); // Proposed
+      await jobBoard.connect(worker).accept(jobId);
+      expect(await bond.locked(worker.address)).to.equal(usd(5));
+      expect((await jobBoard.getJob(jobId)).status).to.equal(1n); // Open
+    });
+    it("only the named worker can accept; only the client can cancel; accepted jobs can't be cancelled", async () => {
+      const jobId = await postJob(workerId, usd(4), 0n, 0, 0, 3600, false);
+      await expect(jobBoard.connect(fraud).accept(jobId)).to.be.revertedWith("not worker");
+      await expect(jobBoard.connect(worker).cancel(jobId)).to.be.revertedWith("not client");
+      await jobBoard.connect(worker).accept(jobId);
+      await expect(jobBoard.connect(client).cancel(jobId)).to.be.revertedWith("not proposed");
+    });
+    it("an un-accepted proposal expires with a refund and NO reputation hit", async () => {
+      const jobId = await postJob(workerId, usd(6), 0n, 0, 0, 100, false);
+      const c0 = await usdc.balanceOf(client.address);
+      await time.increase(200);
+      await jobBoard.connect(owner).expire(jobId);
+      expect((await usdc.balanceOf(client.address)) - c0).to.equal(usd(6));
+      expect(await reputation.scoreOf(workerId)).to.equal(0n);
+      expect((await jobBoard.getJob(jobId)).status).to.equal(7n); // Cancelled
+    });
+    it("deadlines are capped (a job can't park a bond for years)", async () => {
+      const far = (await time.latest()) + 31 * 24 * 3600;
+      await usdc.connect(client).approve(jobBoard.target, usd(2));
+      await expect(
+        jobBoard.connect(client).postJob(workerId, validatorId, 0n, 0, 0, usd(2), far, ethers.id("s"))
+      ).to.be.revertedWith("deadline too far");
+    });
+  });
+
+  describe("Validator liveness (no stranded escrow)", () => {
+    it("an unanswered submission unwinds after the window: refund + unlock, no reputation change", async () => {
+      const jobId = await postJob(workerId, usd(8));
+      await jobBoard.connect(worker).submit(jobId, ANS);
+      await expect(jobBoard.connect(owner).timeoutValidation(jobId)).to.be.revertedWith("validation window open");
+      await time.increase(24 * 3600 + 1);
+      await expect(jobBoard.connect(validatorAcct).validate(jobId, ANS)).to.be.revertedWith("validation window closed");
+      const c0 = await usdc.balanceOf(client.address);
+      await jobBoard.connect(owner).timeoutValidation(jobId);
+      expect((await usdc.balanceOf(client.address)) - c0).to.equal(usd(8));
+      expect(await bond.locked(worker.address)).to.equal(0n);
+      expect(await reputation.scoreOf(workerId)).to.equal(0n);
+      expect((await jobBoard.getJob(jobId)).status).to.equal(5n);
+    });
+    it("completed jobs accrue the worker's credit basis = validator fees paid to the curated validator", async () => {
+      const jobId = await postJob(workerId, usd(10), brokerId, 500, 300);
+      await jobBoard.connect(worker).submit(jobId, ANS);
+      await jobBoard.connect(validatorAcct).validate(jobId, ANS);
+      expect(await jobBoard.creditBasis(workerId)).to.equal(usd(0.3));
     });
   });
 

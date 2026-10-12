@@ -32,6 +32,7 @@ export interface AgoraEvent {
     | "stream_settled"
     | "x402_sale"
     | "priced_out"
+    | "job_declined"
     | "credit"
     | "firewall_block"
     | "tick";
@@ -53,7 +54,7 @@ const clampRep = (score: bigint) => BigInt(Math.max(0, Math.min(Number(score), 2
 
 // --- credit market ---
 const CREDIT_MIN_REP = 30n; // minimum reputation to access working-capital credit
-const BORROW_PRINCIPAL = () => usd(4); // a reputable worker borrows this to expand its bond/capacity
+const BORROW_PRINCIPAL = () => usd(0.5); // a worker with a fee-backed track record borrows this to expand capacity
 
 // value-moving events counted toward transactions-per-minute
 const VALUE_KINDS = new Set(["job_posted", "job_completed", "job_rejected", "stream_settled", "x402_sale", "credit"]);
@@ -210,6 +211,15 @@ export class Economy {
       deadline,
       specHash: deliverableHash(`${task.kind}:${task.input.join(",")}`),
     });
+    // the worker reviews the proposal and agrees to its terms on-chain — that's what locks its collateral
+    // (a worker that can't cover the bond simply can't accept; the client then cancels for a full refund)
+    try {
+      await A.acceptJob(worker.wallet, jobId);
+    } catch {
+      await A.cancelJob(consumer.wallet, jobId);
+      this.log("job_declined", `${worker.name} declined a ${task.kind} job (not enough free collateral) — escrow refunded`, { agent: worker.name, kind: task.kind });
+      return;
+    }
     consumer.firewall.record(amount);
     consumer.spent += amount;
     consumer.jobsPosted++;
@@ -397,7 +407,7 @@ export class Economy {
         const principal = BORROW_PRINCIPAL();
         const owed = (principal * 10500n) / 10000n; // + 5% fee
         const [limit, avail] = await Promise.all([A.creditLimit(w.agentId), A.availableBond(w.address)]);
-        if (limit >= owed && avail >= (principal * 2000n) / 10000n) {
+        if (limit >= owed && avail >= (principal * 6000n + 9999n) / 10000n) { // 60% collateral (LendingPool.COLLATERAL_BPS)
           try {
             await A.borrow(w.wallet, principal);
             await usdcApprove(w.wallet, dep().usdc, dep().bond, principal);
