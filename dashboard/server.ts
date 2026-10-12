@@ -7,7 +7,10 @@ import { dirname, join } from "node:path";
 import { startChain } from "../test/harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
-import { mountGateway } from "./gateway";
+import { mountGateway, type GatewayOptions } from "./gateway";
+import { arcMarket } from "./market";
+import { ArcRail, ArcTabFunder, ArcTabPool } from "./arcrail";
+import { usd, fmtUsd } from "../shared/usdc";
 import { renderNotFound, publicBase } from "./pages";
 import { mountHouseEndpoints, seedMarketplace } from "./seed";
 import { rateLimit, clientIp } from "./ratelimit";
@@ -17,6 +20,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? +process.env.PORT : 4000;
 const TICK_MS = process.env.TICK_MS ? +process.env.TICK_MS : 1500;
 const SELFTEST = !!process.env.SELFTEST;
+
+/** Marketplace settlement: real Arc (Circle Gateway) when MARKET_CHAIN=arc and a funded operator key is set. */
+async function buildMarket(): Promise<GatewayOptions> {
+  if (process.env.MARKET_CHAIN !== "arc") return {};
+  const key = process.env.PRIVATE_KEY as `0x${string}` | undefined;
+  if (!key) throw new Error("MARKET_CHAIN=arc needs PRIVATE_KEY (the funded Arc operator / contract manager key)");
+  const market = arcMarket(key);
+  const rail = await new ArcRail(key).init();
+  const capUnits = usd(Number(process.env.ARC_TAB_CAP_USDC || 0.01));
+  const budgetUnits = usd(Number(process.env.ARC_TAB_DAILY_BUDGET_USDC || 0.5));
+  const tabs = new ArcTabPool(new ArcTabFunder(key, budgetUnits), capUnits, Number(process.env.ARC_TAB_POOL || 2));
+  console.log(`• marketplace settles on ARC via Circle Gateway (operator ${market.operator.account.address.slice(0, 10)}…, demo tabs $${fmtUsd(capUnits)} each, $${fmtUsd(budgetUnits)}/day)`);
+  return { market, arc: { rail, tabs } };
+}
 
 async function main() {
   const chain = await startChain();
@@ -35,6 +52,7 @@ async function main() {
   app.get("/pay", (_req, res) => res.sendFile(join(__dirname, "public", "pay.html")));
   app.get("/registry", (_req, res) => res.sendFile(join(__dirname, "public", "registry.html")));
 
+  let marketKind: "arc" | "sandbox" = "sandbox"; // where the public marketplace settles (economy is always sandbox)
   const sseClients: Response[] = [];
   app.get("/api/events", (req, res) => {
     res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
@@ -52,7 +70,7 @@ async function main() {
   });
 
   app.get("/api/info", (_req, res) =>
-    res.json({ network: process.env.AGORA_NETWORK || "localhost", agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
+    res.json({ network: process.env.AGORA_NETWORK || "localhost", market: marketKind, agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
   );
   // shows a caller only their OWN connection headers — used to verify which hop the proxy chain trusts
   app.get("/api/whoami", (req, res) =>
@@ -79,8 +97,12 @@ async function main() {
 
   // real house-service endpoints (uuid/slug/json) the seeded listings proxy to over loopback
   mountHouseEndpoints(app);
-  // the PUBLIC pay-per-use gateway — real external agents/users pay tiny USDC per call (→ externalVolume)
-  mountGateway(app, eco, society);
+  // the PUBLIC pay-per-use gateway — real external agents/users pay tiny USDC per call (→ externalVolume).
+  // MARKET_CHAIN=arc (+ PRIVATE_KEY) settles the marketplace on real Arc via Circle Gateway; the agent economy
+  // keeps running on its sandbox chain either way.
+  const marketOpts = await buildMarket();
+  marketKind = marketOpts.arc ? "arc" : "sandbox";
+  mountGateway(app, eco, society, marketOpts);
 
   // branded 404 for any unmatched route (no ugly "Cannot GET /x") — must be last
   app.use((req, res) => {
@@ -92,8 +114,10 @@ async function main() {
   await new Promise<void>((resolve, reject) => app.listen(PORT, (err?: Error) => (err ? reject(err) : resolve())));
   console.log(`\n🏛️  Agora dashboard live → http://localhost:${PORT}\n`);
 
-  // seed the marketplace with real, bonded house services so it's never empty (local/demo chain only)
-  await seedMarketplace(society, PORT);
+  // seed the marketplace with real, bonded house services so it's never empty (sandbox market only: their
+  // payout keys are fixed demo keys, which must never hold real money)
+  if (!marketOpts.arc) await seedMarketplace(society, PORT);
+  else marketOpts.arc.tabs.refill(); // pre-fund demo tabs so a visitor's first "open tab" is instant
 
   const pushSnapshot = async () => {
     const snap = await eco.snapshot();

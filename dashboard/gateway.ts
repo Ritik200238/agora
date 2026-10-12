@@ -4,11 +4,13 @@
 // /pay UI, or an external AI agent via the SDK) can pay TINY USDC PER CALL for real services over
 // the x402 protocol. Two payment models, both settling REAL USDC on-chain:
 //
-//   1. Tabs (Dexter-style, browser-tryable): open a capped "tab" (pre-funded demo credit on the local
-//      chain), then pay-per-call against it. The server custodies the tab wallet; the contract-enforced
-//      cap means an agent can never overspend. Every call is a real on-chain USDC transfer.
-//   2. Raw x402 (for external agents with their own funded wallet): GET a service → 402 + price terms →
-//      transfer USDC yourself → POST { payment: txHash, input } → get the result. Verified on-chain.
+//   1. Tabs (Dexter-style, browser-tryable): open a capped "tab", then pay-per-call against it. The server
+//      custodies the tab wallet, and the cap is real money: on the sandbox, minted demo USDC paid by ERC-20
+//      transfers; on Arc, a real Circle Gateway deposit paid by gasless nanopayments.
+//   2. Raw x402 for external agents with their own wallet:
+//        • /x402/arc/:service — standard x402 v2 over Circle Gateway on Arc (any x402/Gateway client works;
+//          non-custodial, sub-cent, charged only on a valid delivery) — enabled when the market runs on Arc;
+//        • /x402/:service — pay by plain ERC-20 transfer + a payer signature over the tx hash.
 //
 // Every purchase here is counted as REAL externalVolume (distinct from the agents' internal wash volume).
 import express, { type Express } from "express";
@@ -16,9 +18,12 @@ import { resolveMx } from "node:dns/promises";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { keccak256, toHex, parseAbiItem, decodeEventLog, parseEther, verifyMessage } from "viem";
 import { generatePrivateKey } from "viem/accounts";
-import { publicClient, walletFor, activeChain, type Wallet } from "../shared/chain";
-import { dep, SETTLEMENT_MODE } from "../shared/config";
+import { walletFor, activeChain, type Wallet } from "../shared/chain";
+import { dep } from "../shared/config";
 import { usd, fmtUsd, usdcMint, usdcTransfer } from "../shared/usdc";
+import { ARC_NETWORK } from "../shared/arc";
+import { type Market, localMarket } from "./market";
+import { type ArcRail, type ArcTabPool, type RunOutcome, FACILITATOR_URL } from "./arcrail";
 import * as A from "../shared/contracts";
 import { rateLimit } from "./ratelimit";
 import { sellerPost, checkSellerUrl } from "./egress";
@@ -355,10 +360,6 @@ function registeredTrust(s: RegisteredService, bondUnits: bigint = 0n): { trustS
  *  this, a stranger could list a dead endpoint under a victim's bonded payTo and get the victim slashed. */
 const ownershipMessage = (id: string, payTo: string) =>
   `Agora: I control ${payTo.toLowerCase()} and list service ${id} on the marketplace.`;
-async function bondBacking(s: RegisteredService): Promise<bigint> {
-  if (!s.ownerVerified) return 0n;
-  return A.serviceBondOf(s.payTo).catch(() => 0n);
-}
 
 /** Public (buyer-facing) view of a registered service, including its live on-chain bond. */
 function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
@@ -390,11 +391,28 @@ function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
 interface Tab {
   id: string; // SECRET bearer token — whoever holds it can spend the tab. Never log or broadcast it.
   label: string; // public, non-spendable handle (from the tab wallet's address) for feeds and logs
-  wallet: Wallet;
+  address: `0x${string}`;
+  wallet?: Wallet; // sandbox tab: pays by ERC-20 transfer on the sandbox chain
+  arcKey?: `0x${string}`; // Arc tab: signs Circle Gateway authorizations against its real deposit
   cap: bigint;
   spent: bigint;
-  items: { service: string; priceUsdc: string; priceUnits: string; tx: string; at: string }[];
+  items: TabItem[];
   createdAt: string;
+}
+
+interface TabItem {
+  service: string;
+  priceUsdc: string;
+  priceUnits: string;
+  tx: string; // sandbox tx hash, or the Circle Gateway transfer id
+  settlement: "sandbox" | "circle-gateway";
+  at: string;
+}
+
+/** How the public marketplace settles. Defaults to the sandbox chain; pass arc to settle on real Arc. */
+export interface GatewayOptions {
+  market?: Market;
+  arc?: { rail: ArcRail; tabs: ArcTabPool };
 }
 
 interface Claim {
@@ -413,13 +431,69 @@ interface Claim {
 }
 
 /** Mount the public pay-per-use gateway at /x402 on the given Express app. */
-export function mountGateway(app: Express, eco: Economy, society: Society): void {
+export function mountGateway(app: Express, eco: Economy, society: Society, opts: GatewayOptions = {}): void {
   const services = makeServices();
-  const producer = society.byRole("producer")[0];
-  const payTo = producer.address; // the API vendor (a real agent that earns the fees)
   const faucet = society.faucet;
-  const canMintDemo = SETTLEMENT_MODE !== "arc"; // MockUSDC.mint + free gas exist only on the local chain
+  const market = opts.market ?? localMarket(faucet);
+  const arc = opts.arc;
+  // who earns the built-in services' fees: the sandbox producer agent, or on Arc the operator's own wallet
+  const payTo = market.kind === "arc" ? market.operator.account.address : society.byRole("producer")[0].address;
   const consumed = new Set<string>(); // per-tx replay protection for the raw x402 path
+  const settlementLabel = market.kind === "arc" ? "circle-gateway" : "sandbox";
+
+  /** A wallet's ServiceBond only backs listings that wallet signed (see ownershipMessage). */
+  const bondBacking = (s: RegisteredService): Promise<bigint> =>
+    s.ownerVerified ? market.bondOf(s.payTo).catch(() => 0n) : Promise.resolve(0n);
+
+  /** Price + payout address for a built-in or registered service (null if unknown). */
+  function lookup(serviceId: string) {
+    const builtin = services[serviceId];
+    const registered = builtin ? undefined : store.getService(serviceId);
+    if (!builtin && !registered) return null;
+    return {
+      builtin,
+      registered,
+      price: builtin ? builtin.price : BigInt(registered!.priceUnits),
+      payTo: (builtin ? payTo : registered!.payTo) as `0x${string}`,
+      desc: builtin ? builtin.desc : registered!.desc,
+    };
+  }
+
+  /** Run a service for a buyer. Never charges by itself — the caller settles only when this returns ok.
+   *  Seller failures and invalid deliveries dent the seller's record (and may slash its bond). */
+  async function produce(serviceId: string, input: unknown): Promise<RunOutcome> {
+    const s = lookup(serviceId);
+    if (!s) return { ok: false, status: 404, body: { error: "unknown service" } };
+    if (s.builtin) {
+      try {
+        return { ok: true, result: await s.builtin.run(input, eco) };
+      } catch (e) {
+        return { ok: false, status: 400, body: { error: String((e as Error)?.message ?? e) } };
+      }
+    }
+    const reg = s.registered!;
+    const proxied = await proxyCall(reg, input);
+    if (!proxied.ok) {
+      store.recordCall(reg.id, s.price, false); // a failure dents the seller's trust score
+      const sellerSlashed = await maybeSlashBadService(reg, s.price); // …and, if it's bonded + truly bad, its stake
+      return { ok: false, status: 502, body: { error: "seller service failed — you were NOT charged: " + proxied.error, ...(sellerSlashed ? { sellerSlashed } : {}) } };
+    }
+    // WARRANTY: a 200 carrying empty/garbage output is NOT a valid delivery — never charge for junk.
+    const delivered = validateDelivery(proxied.data, reg.requires);
+    if (!delivered.ok) {
+      store.recordCall(reg.id, s.price, false);
+      const sellerSlashed = await maybeSlashBadService(reg, s.price);
+      return { ok: false, status: 502, body: { error: `seller delivered invalid output (${delivered.reason}) — you were NOT charged`, warranty: "invalid-delivery", ...(sellerSlashed ? { sellerSlashed } : {}) } };
+    }
+    return { ok: true, result: proxied.data };
+  }
+
+  /** Book a settled sale: the external-volume counters, and the seller's ledger for registered services. */
+  function recordSale(serviceId: string, price: bigint, buyerLabel: string) {
+    eco.recordExternalSale(price, serviceId, buyerLabel);
+    store.addExternal(price);
+    if (store.getService(serviceId)) store.recordCall(serviceId, price, true);
+  }
   const tabs = new Map<string, Tab>();
   const claims = new Map<string, Claim>(); // buyer-protection disputes (paid out of the insurance pool)
 
@@ -436,7 +510,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       if (bond <= 0n) return null;
       const penalty = price * 100n < bond ? price * 100n : bond; // 100× the call price, capped at the stake
       if (penalty <= 0n) return null;
-      await A.serviceBondSlash(faucet, fresh.payTo, penalty, `${fresh.failures}/${fresh.calls} calls failed`);
+      await market.slash(fresh.payTo, penalty, `${fresh.failures}/${fresh.calls} calls failed`);
       store.recordSlash(fresh.id, penalty);
       console.log(`⚔️  slashed ${fmtUsd(penalty)} USDC from failing service ${fresh.id} (${fresh.failures}/${fresh.calls} failed)`);
       return { slashedUsdc: fmtUsd(penalty), bondRemainingUsdc: fmtUsd(bond - penalty), reason: `${fresh.failures}/${fresh.calls} calls failed` };
@@ -454,18 +528,21 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     const bonds = await Promise.all(registered.map(bondBacking));
     const totalBonded = bonds.reduce((a, b) => a + b, 0n);
     const [totalSlashed, insurancePool, insurancePaid] = await Promise.all([
-      A.serviceBondTotalSlashed().catch(() => 0n),
-      A.insuranceAvailable().catch(() => 0n),
-      A.insuranceTotalPaidOut().catch(() => 0n),
+      market.totalSlashed().catch(() => 0n),
+      market.insuranceAvailable().catch(() => 0n),
+      market.insurancePaidOut().catch(() => 0n),
     ]);
     res.json({
       payTo,
-      token: dep().usdc,
-      chainId: activeChain.id,
-      settlement: SETTLEMENT_MODE,
-      demoTabsEnabled: canMintDemo,
-      serviceBond: dep().serviceBond, // stake here to bond your service (skin in the game)
-      insurancePoolContract: dep().insurancePool,
+      token: market.usdc,
+      chainId: market.chainId,
+      settlement: settlementLabel, // "circle-gateway" = real nanopayments on Arc; "sandbox" = local demo chain
+      demoTabsEnabled: true,
+      ...(arc
+        ? { arc: { network: ARC_NETWORK, x402: "/x402/arc/:service", facilitator: FACILITATOR_URL, demoTabsLeftToday: arc.tabs.readyCount } }
+        : {}),
+      serviceBond: market.serviceBond, // stake here to bond your service (skin in the game)
+      insurancePoolContract: market.insurancePool,
       marketplace: {
         bondedServices: bonds.filter((b) => b > 0n).length,
         totalBondedUsdc: fmtUsd(totalBonded), // real USDC staked across the marketplace
@@ -542,7 +619,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
         ? {}
         : { verifyOwnership: { message, how: "sign `message` with the payTo wallet (EIP-191 personal_sign) and re-register with the same fields + { signature } — required before your ServiceBond stake counts for this listing" } }),
       callWith: `POST /x402/tab/<tabId>/call  { "service": "${id}", "input": ... }`,
-      bondWith: { contract: dep().serviceBond, method: "bond(uint256 usdcUnits) — approve first, from payTo", why: "stake USDC to earn a BONDED badge + trust boost; a service that repeatedly fails gets slashed. Counts only for owner-verified (payTo-signed) listings." },
+      bondWith: { contract: market.serviceBond, method: "bond(uint256 usdcUnits) — approve first, from payTo", why: "stake USDC to earn a BONDED badge + trust boost; a service that repeatedly fails gets slashed. Counts only for owner-verified (payTo-signed) listings." },
       note: "You're paid directly on-chain to payTo on every SUCCESSFUL call — no custody, no withdrawal. Buyers aren't charged if your endpoint fails. Bond USDC to stand out as trustworthy.",
     });
   });
@@ -556,10 +633,30 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     return res.status(404).json({ error: "unknown service" });
   });
 
-  // --- Tabs: open a capped, pre-funded spending channel (demo credit on the local chain) ---
+  // --- Tabs: open a capped, pre-funded spending channel ---
   r.post("/tab", rateLimit(15), async (req, res) => {
-    if (!canMintDemo)
-      return res.status(400).json({ error: "demo tabs run only on the local chain; on Arc, fund your own wallet at https://faucet.circle.com and use the raw x402 flow" });
+    if (arc) {
+      // Arc: a real wallet with a real Circle Gateway deposit (the cap), handed out only once Circle credited it
+      try {
+        const t = await arc.tabs.take();
+        const id = "tab_" + randomBytes(16).toString("hex");
+        const label = "tab:" + t.address.slice(2, 8);
+        tabs.set(id, { id, label, address: t.address, arcKey: t.privateKey, cap: arc.tabs.capUnits, spent: 0n, items: [], createdAt: new Date().toISOString() });
+        return res.json({
+          tabId: id,
+          address: t.address,
+          capUsdc: fmtUsd(arc.tabs.capUnits),
+          spentUsdc: "0",
+          remainingUsdc: fmtUsd(arc.tabs.capUnits),
+          settlement: "circle-gateway",
+          depositTx: t.depositTx,
+          depositUrl: market.txUrl(t.depositTx),
+          note: "Free demo credit: real testnet USDC deposited into Circle Gateway on Arc. Every call is a real gasless nanopayment.",
+        });
+      } catch (e) {
+        return res.status(503).json({ error: "could not open an Arc tab: " + String((e as Error)?.message ?? e) });
+      }
+    }
     const capUsdc = req.body?.capUsdc != null ? Number(req.body.capUsdc) : 0.1;
     if (!(capUsdc > 0) || capUsdc > 5) return res.status(400).json({ error: "capUsdc must be a number in (0, 5]" });
     const cap = usd(capUsdc);
@@ -573,14 +670,15 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       // and never derived from public data (it used to be the first 8 hex chars of the tab's address).
       const id = "tab_" + randomBytes(16).toString("hex");
       const label = "tab:" + addr.slice(2, 8);
-      tabs.set(id, { id, label, wallet, cap, spent: 0n, items: [], createdAt: new Date().toISOString() });
+      tabs.set(id, { id, label, address: addr, wallet, cap, spent: 0n, items: [], createdAt: new Date().toISOString() });
       res.json({
         tabId: id,
         address: addr,
         capUsdc: fmtUsd(cap),
         spentUsdc: "0",
         remainingUsdc: fmtUsd(cap),
-        note: "Demo credit (local test USDC). On Arc this is real USDC you fund yourself.",
+        settlement: "sandbox",
+        note: "Demo credit on the sandbox chain (test USDC; tx hashes are local, not on Arcscan).",
       });
     } catch (e) {
       res.status(500).json({ error: "could not open tab: " + String((e as Error)?.message ?? e) });
@@ -593,57 +691,51 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     const tab = tabs.get(req.params.id);
     if (!tab) return res.status(404).json({ error: "unknown tab" });
     const serviceId = String(req.body?.service ?? "");
-    const builtin = services[serviceId];
-    const registered = builtin ? undefined : store.getService(serviceId);
-    if (!builtin && !registered) return res.status(404).json({ error: "unknown service", builtin: Object.keys(services) });
-    const price = builtin ? builtin.price : BigInt(registered!.priceUnits);
-    const sellerPayTo = builtin ? payTo : registered!.payTo;
+    const s = lookup(serviceId);
+    if (!s) return res.status(404).json({ error: "unknown service", builtin: Object.keys(services) });
+    const { price, registered } = s;
+    const sellerPayTo = s.payTo;
     if (tab.spent + price > tab.cap)
       return res.status(402).json({ error: "tab cap reached — an agent can never overspend its tab", capUsdc: fmtUsd(tab.cap), spentUsdc: fmtUsd(tab.spent) });
+    tab.spent += price; // reserve against the cap before any await (concurrent calls can't overshoot it)
 
-    // produce the result FIRST (pay-only-on-success — a failed seller call never charges the buyer)
-    let result: any;
-    if (builtin) {
-      try {
-        result = await builtin.run(req.body?.input, eco);
-      } catch (e) {
-        return res.status(400).json({ error: String((e as Error)?.message ?? e), charged: false });
-      }
-    } else {
-      const proxied = await proxyCall(registered!, req.body?.input);
-      if (!proxied.ok) {
-        store.recordCall(registered!.id, price, false); // a failure dents the seller's trust score
-        const sellerSlashed = await maybeSlashBadService(registered!, price); // …and, if it's bonded + truly bad, its stake
-        return res.status(502).json({ error: "seller service failed — you were NOT charged: " + proxied.error, charged: false, ...(sellerSlashed ? { sellerSlashed } : {}) });
-      }
-      // WARRANTY: a 200 carrying empty/garbage output is NOT a valid delivery — never charge for junk.
-      const delivered = validateDelivery(proxied.data, registered!.requires);
-      if (!delivered.ok) {
-        store.recordCall(registered!.id, price, false);
-        const sellerSlashed = await maybeSlashBadService(registered!, price);
-        return res.status(502).json({ error: `seller delivered invalid output (${delivered.reason}) — you were NOT charged`, charged: false, warranty: "invalid-delivery", ...(sellerSlashed ? { sellerSlashed } : {}) });
-      }
-      result = proxied.data;
-    }
-
-    // pay the provider on-chain (the seller for registered, the house producer for built-ins)
     let tx: string;
-    try {
-      const rcpt = await usdcTransfer(tab.wallet, dep().usdc, sellerPayTo, price);
-      tx = rcpt.transactionHash;
-    } catch (e) {
-      return res.status(500).json({ error: "payment failed: " + String((e as Error)?.message ?? e) });
+    let result: unknown;
+    if (tab.arcKey && arc) {
+      // Arc: sign a Circle Gateway authorization from the tab's deposit → verify → run → settle only on success
+      const reqs = arc.rail.requirements(price, sellerPayTo);
+      const payload = await arc.rail.sign(tab.arcKey, reqs, `${publicBase(req)}/x402/arc/${serviceId}`, s.desc.slice(0, 120));
+      const out = await arc.rail.charge(payload, reqs, () => produce(serviceId, req.body?.input));
+      if (!out.ok) {
+        tab.spent -= price;
+        return res.status(out.status).json(out.body);
+      }
+      tx = out.transfer;
+      result = out.result;
+    } else {
+      // sandbox: produce first (pay-only-on-success), then pay the provider by ERC-20 transfer
+      const out = await produce(serviceId, req.body?.input);
+      if (!out.ok) {
+        tab.spent -= price;
+        return res.status(out.status).json({ ...out.body, charged: false });
+      }
+      try {
+        const rcpt = await usdcTransfer(tab.wallet!, dep().usdc, sellerPayTo, price);
+        tx = rcpt.transactionHash;
+      } catch (e) {
+        tab.spent -= price;
+        return res.status(500).json({ error: "payment failed: " + String((e as Error)?.message ?? e) });
+      }
+      result = out.result;
     }
-    tab.spent += price;
-    tab.items.push({ service: serviceId, priceUsdc: fmtUsd(price), priceUnits: price.toString(), tx, at: new Date().toISOString() });
-    eco.recordExternalSale(price, serviceId, tab.label); // public label only — the id would let anyone spend the tab
-    store.addExternal(price);
-    if (registered) store.recordCall(registered.id, price, true);
+    tab.items.push({ service: serviceId, priceUsdc: fmtUsd(price), priceUnits: price.toString(), tx, settlement: tab.arcKey ? "circle-gateway" : "sandbox", at: new Date().toISOString() });
+    recordSale(serviceId, price, tab.label); // public label only — the id would let anyone spend the tab
     res.json({
       service: serviceId,
       kind: registered ? "registered" : "builtin",
       paidUsdc: fmtUsd(price),
       tx,
+      settlement: tab.arcKey ? "circle-gateway" : "sandbox",
       result,
       tab: { capUsdc: fmtUsd(tab.cap), spentUsdc: fmtUsd(tab.spent), remainingUsdc: fmtUsd(tab.cap - tab.spent), calls: tab.items.length },
     });
@@ -655,7 +747,8 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     if (!tab) return res.status(404).json({ error: "unknown tab" });
     res.json({
       tabId: tab.id,
-      address: tab.wallet.account.address,
+      address: tab.address,
+      settlement: tab.arcKey ? "circle-gateway" : "sandbox",
       capUsdc: fmtUsd(tab.cap),
       spentUsdc: fmtUsd(tab.spent),
       remainingUsdc: fmtUsd(tab.cap - tab.spent),
@@ -682,7 +775,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     const claim: Claim = {
       id,
       tabId: tab.id,
-      buyer: tab.wallet.account.address,
+      buyer: tab.address,
       service: item.service,
       seller,
       amount: BigInt(item.priceUnits),
@@ -717,32 +810,70 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     }
     try {
       // 1) make the buyer whole from the buyer-protection pool
-      const rcpt = await A.insurancePayout(faucet, claim.buyer, claim.amount, `claim ${claim.id} on ${claim.service}`);
+      const payoutTx = await market.payout(claim.buyer, claim.amount, `claim ${claim.id} on ${claim.service}`);
       // 2) slash the seller to replenish the pool (registered + bonded sellers only) + dent their trust
       const claimed = store.getService(claim.service);
       if (claimed) {
         const bond = await bondBacking(claimed);
         if (bond > 0n) {
           const penalty = claim.amount > bond ? bond : claim.amount;
-          await A.serviceBondSlash(faucet, claim.seller, penalty, `upheld claim ${claim.id}`).catch(() => {});
+          await market.slash(claim.seller, penalty, `upheld claim ${claim.id}`).catch(() => {});
           store.recordSlash(claim.service, penalty);
         }
       }
       claim.status = "paid";
       claim.resolvedAt = new Date().toISOString();
-      claim.payoutTx = rcpt.transactionHash;
+      claim.payoutTx = payoutTx;
       res.json({ ok: true, claim: { id: claim.id, status: claim.status, refundedUsdc: fmtUsd(claim.amount), payoutTx: claim.payoutTx } });
     } catch (e) {
       res.status(500).json({ error: "payout failed: " + String((e as Error)?.message ?? e) });
     }
   });
 
-  // --- Raw x402 (for external agents with their own funded wallet) ---
+  // --- x402 over Circle Gateway on Arc: the standard, non-custodial door for any agent with an Arc wallet ---
+  // GET|POST /x402/arc/:service with no PAYMENT-SIGNATURE → 402 + PAYMENT-REQUIRED (x402 v2). Retry with the
+  // signed authorization → verify → run → settle ONLY on a valid delivery. Works for built-in AND registered
+  // services; registered sellers are paid straight into their own Gateway balance (no custody).
+  r.all("/arc/:service", rateLimit(120), async (req, res) => {
+    if (!arc) return res.status(503).json({ error: "Arc settlement isn't enabled on this deployment (it runs on the sandbox chain)" });
+    const serviceId = String(req.params.service);
+    const s = lookup(serviceId);
+    if (!s) return res.status(404).json({ error: "unknown service" });
+    const reqs = arc.rail.requirements(s.price, s.payTo);
+    const resource = `${publicBase(req)}/x402/arc/${serviceId}`;
+    const header = req.headers["payment-signature"];
+    if (!header) {
+      const pr = arc.rail.paymentRequired(resource, s.desc.slice(0, 200), reqs);
+      res.set("PAYMENT-REQUIRED", pr.header);
+      return res.status(402).json({
+        error: "payment required",
+        ...pr.body,
+        how: "Circle Gateway on Arc: deposit USDC once (GatewayClient.deposit), then GatewayClient.pay(thisUrl, { method: 'POST', body: { input } }). You are charged only if the service delivers.",
+      });
+    }
+    const payload = arc.rail.decode(String(header));
+    if (!payload) return res.status(400).json({ error: "malformed PAYMENT-SIGNATURE header" });
+    let input: unknown = req.body?.input;
+    if (input === undefined && typeof req.query.input === "string") {
+      try {
+        input = JSON.parse(req.query.input);
+      } catch {
+        return res.status(400).json({ error: "query param input must be JSON" });
+      }
+    }
+    const out = await arc.rail.charge(payload, reqs, () => produce(serviceId, input));
+    if (!out.ok) return res.status(out.status).json(out.body);
+    res.set("PAYMENT-RESPONSE", Buffer.from(JSON.stringify({ success: true, transaction: out.transfer, network: ARC_NETWORK, payer: out.payer })).toString("base64"));
+    recordSale(serviceId, s.price, "agent:" + out.payer.slice(0, 10));
+    res.json({ service: serviceId, paidUsdc: fmtUsd(s.price), transfer: out.transfer, settlement: "circle-gateway", result: out.result });
+  });
+
+  // --- Raw x402 by plain ERC-20 transfer (for agents paying from their own wallet without Gateway) ---
   // GET /x402/:service -> 402 Payment Required + terms
   r.get("/:service", async (req, res) => {
     const svc = services[req.params.service];
     if (!svc) return res.status(404).json({ error: "unknown service", services: Object.keys(services) });
-    const head = await publicClient.getBlockNumber();
+    const head = await market.client.getBlockNumber();
     res.status(402).json({
       error: "payment required",
       terms: {
@@ -750,8 +881,8 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
         priceUsdc: fmtUsd(svc.price),
         priceUnits: svc.price.toString(),
         payTo,
-        token: dep().usdc,
-        chainId: activeChain.id,
+        token: market.usdc,
+        chainId: market.chainId,
         sinceBlock: head.toString(),
         claimMessage: paymentClaimMessage(svc.id, "{txHash}").replace("{txhash}", "{txHash}"), // sign with {txHash} filled in (lowercase)
         how: "transfer >= priceUnits USDC to payTo from your wallet, sign claimMessage with that same wallet (EIP-191 personal_sign), then POST { payment: <txHash>, signature, input } to this URL",
@@ -769,7 +900,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     const signature = String(req.body?.signature ?? "");
     if (!signature) return res.status(402).json({ error: "signature required: sign the claim message with the wallet that paid", sign: paymentClaimMessage(svc.id, payment) });
 
-    const v = await verifyPayment(payment, signature, svc.id, svc.price, payTo, consumed);
+    const v = await verifyPayment(market, payment, signature, svc.id, svc.price, payTo, consumed);
     if (!v.ok) return res.status(402).json({ error: v.reason });
 
     let result: any;
@@ -823,6 +954,7 @@ function paymentClaimMessage(serviceId: string, txHash: string) {
  *  - The tx is reserved in `consumed` BEFORE any await, so two concurrent requests with the same hash can't both
  *    pass the check; the reservation is released if verification fails. */
 async function verifyPayment(
+  market: Market,
   txHash: string,
   signature: string,
   serviceId: string,
@@ -839,16 +971,16 @@ async function verifyPayment(
   };
   let receipt;
   try {
-    receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+    receipt = await market.client.getTransactionReceipt({ hash: txHash as `0x${string}` });
   } catch {
     return fail("payment tx not found");
   }
   if (receipt.status !== "success") return fail("payment tx reverted");
-  const head = await publicClient.getBlockNumber();
+  const head = await market.client.getBlockNumber();
   if (head - receipt.blockNumber > 500n) return fail("payment too old — the replay window has closed");
   const bySender = new Map<string, bigint>();
   for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== dep().usdc.toLowerCase()) continue;
+    if (log.address.toLowerCase() !== market.usdc.toLowerCase()) continue;
     try {
       const ev = decodeEventLog({ abi: [TRANSFER], data: log.data, topics: log.topics });
       const a = ev.args as { from: `0x${string}`; to: `0x${string}`; value: bigint };
@@ -862,7 +994,7 @@ async function verifyPayment(
   let paid = 0n;
   for (const [from, value] of bySender) {
     // publicClient.verifyMessage covers plain wallets (ECDSA) and smart-contract wallets (ERC-1271)
-    const mine = await publicClient.verifyMessage({ address: from as `0x${string}`, message, signature: signature as `0x${string}` }).catch(() => false);
+    const mine = await market.client.verifyMessage({ address: from as `0x${string}`, message, signature: signature as `0x${string}` }).catch(() => false);
     if (mine) paid += value;
   }
   if (paid === 0n) return fail("signature is not from the wallet that sent this payment");

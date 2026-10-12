@@ -18,6 +18,7 @@
     "test:paywall": "tsx test/paywall.ts",
     "test:mcp": "tsx test/mcp.ts",
     "test:arc": "tsx test/arc.ts",
+    "test:arc-gateway": "tsx test/arc-gateway.ts",
     "chain": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
     "deploy:arc": "hardhat run scripts/deploy.js --network arcTestnet",
