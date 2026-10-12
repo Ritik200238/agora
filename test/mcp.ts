@@ -1,6 +1,7 @@
 // End-to-end test of the Agora MCP server (the agent door): spawn it, connect an MCP client, and drive
 // the exact tools an AI agent uses — open a budget, discover, trust-check, pay for a service, read the
 // bill — all against a live gateway. Proves any Claude/Cursor agent can transact on Arc. `npm run test:mcp`.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import express from "express";
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";

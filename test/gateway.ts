@@ -1,6 +1,7 @@
 // End-to-end test of the PUBLIC pay-per-use gateway: an external client opens a capped tab, pays
 // tiny USDC per call for real services, and it settles on-chain as REAL external volume. Also exercises
 // the raw client-signs x402 path + replay/cap protection. `npm run test:gateway`.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import express from "express";
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";

@@ -1,6 +1,7 @@
 // End-to-end test of the MULTI-TENANT gateway (the seller door): a third-party dev registers their own
 // HTTP service, an agent opens a capped tab and pays for it, the seller is paid DIRECTLY on-chain, the
 // registry persists to disk, and a failing seller never charges the buyer. `npm run test:registry`.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import express from "express";
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";

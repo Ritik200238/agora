@@ -3,6 +3,7 @@
 //   2. slashing funds a real on-chain INSURANCE POOL (bad actors finance buyer protection).
 //   3. a disputed (but charged) call is refunded from that pool + the seller is slashed to replenish it.
 // `npm run test:warranty`.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import express from "express";
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";

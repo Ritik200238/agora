@@ -1,6 +1,7 @@
 // Verifies the proven-demand data services return REAL data end-to-end through the paid gateway (a real tab
 // pays real tiny USDC per call). These hit live free sources (Open-Meteo, er-api, DNS), so this runs on
 // demand (`npm run test:services`) rather than in the deterministic suite. No API keys.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import express from "express";
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";

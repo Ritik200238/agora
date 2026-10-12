@@ -1,5 +1,6 @@
 // Canonical end-to-end test: boots a real chain, runs the full self-running economy, and asserts
 // every key invariant against REAL on-chain state. No stubs, no fakes. `npm run test:e2e`.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";

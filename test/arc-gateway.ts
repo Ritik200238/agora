@@ -1,6 +1,7 @@
 // LIVE end-to-end: the public gateway in ARC mode — the marketplace settles on real Arc via Circle Gateway
 // while the agent economy runs on its sandbox chain. Spends a few cents of testnet USDC; needs PRIVATE_KEY.
 // `npm run test:arc-gateway` (not in CI).
+import "./isolate"; // keep test data out of the real store (must stay first)
 import "dotenv/config";
 import express from "express";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";

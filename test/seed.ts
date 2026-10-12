@@ -2,6 +2,7 @@
 // any third party uses, back each with a REAL USDC bond, and they are genuinely callable (real loopback
 // proxy + real on-chain payment). This is what stops a first visitor from landing on an empty marketplace.
 // `npm run test:seed`.
+import "./isolate"; // keep test data out of the real store (must stay first)
 import express from "express";
 import { startChain } from "./harness";
 import { buildSociety } from "../agents/society";
