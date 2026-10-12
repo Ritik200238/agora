@@ -10,7 +10,7 @@ import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "./gateway";
 import { renderNotFound, publicBase } from "./pages";
 import { mountHouseEndpoints, seedMarketplace } from "./seed";
-import { rateLimit } from "./ratelimit";
+import { rateLimit, clientIp } from "./ratelimit";
 import { store } from "./store";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,7 +56,7 @@ async function main() {
   );
   // shows a caller only their OWN connection headers — used to verify which hop the proxy chain trusts
   app.get("/api/whoami", (req, res) =>
-    res.json({ socket: req.socket.remoteAddress, forwardedFor: req.headers["x-forwarded-for"] ?? null, cfConnectingIp: req.headers["cf-connecting-ip"] ?? null, trueClientIp: req.headers["true-client-ip"] ?? null })
+    res.json({ ip: clientIp(req), socket: req.socket.remoteAddress, forwardedFor: req.headers["x-forwarded-for"] ?? null, cfConnectingIp: req.headers["cf-connecting-ip"] ?? null, trueClientIp: req.headers["true-client-ip"] ?? null })
   );
   app.get("/api/snapshot", async (_req, res) => res.json(await eco.snapshot()));
   app.get("/api/job/:id", async (req, res) => {
