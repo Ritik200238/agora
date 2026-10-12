@@ -109,10 +109,33 @@ The contracts are **deployed to Arc** and real **tiny-USDC** pay-per-use has **s
 Circle **Gateway / Nanopayments** also **runs on Arc** — a real gasless, batched USDC nanopayment via Circle's
 facilitator (`npm run gateway:arc`). Reproduce with a faucet-funded key: `npm run deploy:arc && npm run arc:demo`.
 
-> **Which chain is the live demo on?** The always-on hosted demo ([agora-j52a.onrender.com](https://agora-j52a.onrender.com))
-> runs on a free **local-EVM sandbox** — same code, same contracts — so it's instant and always-on and you can
-> hammer it. Its tx hashes are **local, not on Arcscan.** Real tiny-USDC settlement on **Arc** is the verifiable
-> proof linked above (open those in Arcscan). Point the runtime at Arc with a funded key to settle live on Arc.
+> **Which chain is the live demo on?** The 12-agent economy always runs on a free **sandbox chain** (it sends
+> dozens of txs a second). The public **marketplace** runs in one of two modes, and `/api/info` says which
+> (`"market"`): **sandbox** (demo USDC, tx hashes not on Arcscan) or **Arc** (`MARKET_CHAIN=arc`). In Arc mode
+> every call is a real **Circle Gateway nanopayment on Arc Testnet**, charged only on delivery. Both modes are
+> tested: `npm run test:arc-gateway` runs the whole gateway against real Arc + Circle. See [DEPLOY.md](./DEPLOY.md).
+
+### Pay from your own wallet (standard x402 over Circle Gateway, Arc mode)
+
+Any x402 / Circle Gateway client can buy any listed service. You don't need an account, and we never hold
+your funds:
+
+```js
+import { GatewayClient } from "@circle-fin/x402-batching/client";
+const client = new GatewayClient({ chain: "arcTestnet", privateKey });   // a wallet with testnet USDC
+await client.deposit("1");                                                // once — then every call is gasless
+const { data } = await client.pay("https://agora-j52a.onrender.com/x402/arc/price",
+  { method: "POST", body: { input: { asset: "bitcoin" } } });            // $0.0001 → live BTC price
+```
+
+`GET /x402/arc/:service` with no payment returns HTTP 402 with a standard `PAYMENT-REQUIRED` header. Agora
+**verifies** your signed authorization, checks your Gateway balance, runs the service, and **settles only if it
+delivered**. Failed or junk deliveries are never settled. Third-party sellers are paid straight into their
+own Gateway balance.
+
+Why Gateway: a plain USDC transfer on Arc costs about **$0.0012 of gas** (measured), which is 1,200× a $0.000001
+payment. Gateway batches signed authorizations, so a **$0.000001** call really is $0.000001. Verified
+end-to-end against Circle's live testnet facilitator.
 
 ---
 
