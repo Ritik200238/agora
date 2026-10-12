@@ -134,6 +134,15 @@ async function main() {
     const hasMeta = pg.text.includes("<title>") && pg.text.includes('property="og:title"') && pg.text.includes('rel="canonical"');
     check("a service renders a crawlable page with title/OG/canonical + JSON-LD", pg.status === 200 && pg.ct.includes("html") && hasJsonLd && hasMeta && pg.text.includes("Uppercase API"), `status=${pg.status}`);
 
+    // 13b. a seller-controlled name can't break out of the JSON-LD <script> (stored XSS on /s/:id)
+    const evilName = "</script><script>alert(1)</script>";
+    const evil = await post("/x402/services/register", { name: evilName, url: `${base}/seller-echo`, priceUsdc: 0.001, desc: "x", payTo: seller.address });
+    const evilPg = await getText(`/s/${evil.body.service?.id}`);
+    const ld = evilPg.text.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    check("a malicious service name cannot inject a script into its page",
+      evilPg.status === 200 && !evilPg.text.includes("<script>alert(1)") && !!ld && JSON.parse(ld[1]).name === evilName,
+      `injected=${evilPg.text.includes("<script>alert(1)")}`);
+
     // 14. a built-in service is indexable too (so search traffic can find sub-cent price/trust APIs)
     const pgBuiltin = await getText("/s/price");
     check("built-in services are indexable pages as well", pgBuiltin.status === 200 && pgBuiltin.text.includes('"@type":"Service"'), `status=${pgBuiltin.status}`);

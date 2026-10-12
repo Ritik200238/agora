@@ -34,6 +34,12 @@ const FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' vi
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 
+/** JSON safe to inline in a <script> block. JSON.stringify leaves `<`, `>` and `&` raw, so a seller-controlled
+ *  name like `</script><script>…` would close the tag and run in every visitor's browser. Escaping them as
+ *  \u003c / \u003e / \u0026 (plus the JS line separators) keeps the JSON identical once parsed. */
+const jsonForScript = (v: unknown) =>
+  JSON.stringify(v).replace(/[<>&\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+
 /** A buyer/crawler-facing service record (shape produced by the gateway's publicService / builtin view). */
 export interface PageService {
   id: string;
@@ -86,7 +92,7 @@ export function renderServicePage(s: PageService, base: string): string {
 <meta property="og:type" content="website"><meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(metaDesc)}"><meta property="og:url" content="${esc(url)}">
 <meta name="twitter:card" content="summary"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(metaDesc)}">
-<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`;
+<script type="application/ld+json">${jsonForScript(jsonLd)}</script>`;
 
   const rows: string[] = [
     `<div class="row"><span class="k">Price per call</span><span class="v" style="color:var(--green)">${esc(price)} USDC</span></div>`,
