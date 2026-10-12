@@ -13,6 +13,7 @@
 // Every purchase here is counted as REAL externalVolume (distinct from the agents' internal wash volume).
 import express, { type Express } from "express";
 import { resolveMx } from "node:dns/promises";
+import { timingSafeEqual } from "node:crypto";
 import { keccak256, toHex, parseAbiItem, decodeEventLog, parseEther } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { publicClient, walletFor, activeChain, type Wallet } from "../shared/chain";
@@ -26,6 +27,16 @@ import type { Economy } from "../orchestrator/economy";
 import type { Society } from "../agents/society";
 
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+
+// Operator secret for the admin routes (claim adjudication). Unset → admin routes are disabled entirely.
+const adminToken = () => process.env.AGORA_ADMIN_TOKEN || "";
+function isOperator(authHeader: string | undefined): boolean {
+  const token = adminToken();
+  if (!token) return false;
+  const given = Buffer.from(String(authHeader ?? "").replace(/^Bearer\s+/i, ""));
+  const want = Buffer.from(token);
+  return given.length === want.length && timingSafeEqual(given, want);
+}
 
 // --- REAL data oracle: live crypto prices from CoinGecko (free, no key). Cached to respect rate limits.
 //     If the real source is unavailable it THROWS — the caller is never charged and never served fake data. ---
@@ -669,8 +680,11 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     })
   );
 
-  // operator resolves a claim → refund from the insurance pool + slash the seller to replenish it
+  // operator resolves a claim → refund from the insurance pool + slash the seller to replenish it.
+  // Operator-only: requires `Authorization: Bearer $AGORA_ADMIN_TOKEN`. With no token configured the route
+  // doesn't exist (404) — an unauthenticated resolve would let anyone file + approve claims and drain the pool.
   r.post("/admin/claim/:id/resolve", rateLimit(30), async (req, res) => {
+    if (!isOperator(req.headers.authorization)) return res.status(adminToken() ? 401 : 404).json({ error: adminToken() ? "operator token required" : "not found" });
     const claim = claims.get(String(req.params.id));
     if (!claim) return res.status(404).json({ error: "unknown claim" });
     if (claim.status !== "open") return res.status(409).json({ error: `claim already ${claim.status}` });

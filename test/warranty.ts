@@ -22,8 +22,10 @@ function check(name: string, cond: boolean, detail = "") {
 }
 const PORT = 4079;
 const base = `http://localhost:${PORT}`;
-const post = (p: string, body?: any) =>
-  fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json() }));
+const post = (p: string, body?: any, headers: Record<string, string> = {}) =>
+  fetch(base + p, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json() }));
+const ADMIN = "test-operator-" + Math.random().toString(36).slice(2);
+process.env.AGORA_ADMIN_TOKEN = ADMIN;
 const get = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status, body: await r.json() }));
 
 async function main() {
@@ -81,7 +83,12 @@ async function main() {
 
     const buyerBefore = await usdcBalance(dep().usdc, tabAddr);
     const paidOutBefore = await A.insuranceTotalPaidOut();
-    const resolve = await post(`/x402/admin/claim/${claim.body.claim.id}/resolve`, { approve: true });
+    // the operator route is locked: a buyer (or anyone) without the operator token cannot approve their own claim
+    const noAuth = await post(`/x402/admin/claim/${claim.body.claim.id}/resolve`, { approve: true });
+    const badAuth = await post(`/x402/admin/claim/${claim.body.claim.id}/resolve`, { approve: true }, { authorization: "Bearer wrong" });
+    const poolUntouched = (await A.insuranceTotalPaidOut()) === paidOutBefore;
+    check("claim resolution is operator-only (no/wrong token → 401, pool untouched)", noAuth.status === 401 && badAuth.status === 401 && poolUntouched, `no-token=${noAuth.status}, wrong-token=${badAuth.status}`);
+    const resolve = await post(`/x402/admin/claim/${claim.body.claim.id}/resolve`, { approve: true }, { authorization: `Bearer ${ADMIN}` });
     const buyerAfter = await usdcBalance(dep().usdc, tabAddr);
     check("an upheld claim refunds the buyer from the pool", resolve.body.ok === true && resolve.body.claim?.status === "paid" && buyerAfter - buyerBefore === 2000n, `refunded $${fmtUsd(buyerAfter - buyerBefore)}`);
     check("the insurance pool records the real payout", (await A.insuranceTotalPaidOut()) - paidOutBefore === 2000n, `paidOut +$${fmtUsd((await A.insuranceTotalPaidOut()) - paidOutBefore)}`);
