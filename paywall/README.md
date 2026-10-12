@@ -30,10 +30,22 @@ That's it. The route now costs **$0.01 in USDC per request**.
    ```json
    { "error": "payment required",
      "terms": { "priceUsdc": 0.01, "payTo": "0xYourWallet", "token": "0x3600…0000", "chainId": 5042002,
-                "how": "transfer >= priceUnits USDC to payTo, then resend with header 'X-Payment: <txHash>'" } }
+                "claimMessage": "Agora paywall: I paid {txHash} to 0xyourwallet", "how": "…" } }
    ```
-2. The client (a human wallet or an **AI agent**) transfers the USDC on-chain and **resends the request** with header `X-Payment: <txHash>`.
-3. The middleware **verifies the transfer on-chain** — correct amount, recent, not already used — and serves the content. Replay-protected.
+2. The client (a human wallet or an **AI agent**) transfers the USDC on-chain, signs `claimMessage` (with its
+   lowercase tx hash filled in) using **the same wallet**, and **resends the request** with headers
+   `X-Payment: <txHash>` and `X-Payment-Signature: <signature>`.
+3. The middleware **verifies the transfer on-chain**: correct amount, sent by the signer, recent and not
+   already used. Then it serves the content. Tx hashes are public, so the signature stops anyone from reusing
+   a real buyer's payment. A payment can't be replayed, even by two requests sent at the same moment.
+
+```js
+// client side (viem): pay, sign, fetch
+const hash = await wallet.writeContract({ address: terms.token, abi: erc20Abi, functionName: "transfer", args: [terms.payTo, BigInt(terms.priceUnits)] });
+await publicClient.waitForTransactionReceipt({ hash });
+const sig = await wallet.signMessage({ message: terms.claimMessage.replace("{txHash}", hash.toLowerCase()) });
+const res = await fetch(url, { headers: { "X-Payment": hash, "X-Payment-Signature": sig } });
+```
 
 ## Options
 

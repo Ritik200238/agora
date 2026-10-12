@@ -6,8 +6,9 @@
 //     (req, res) => res.json({ article: "…the paid content…" }));
 //
 // A request with no payment gets HTTP 402 + x402 terms (price, payTo, token, chain). The client transfers
-// USDC on-chain, then resends with `X-Payment: <txHash>`; the middleware verifies the transfer on-chain
-// (right amount, recent, not replayed) and serves the content. Settles on Circle's Arc by default — sub-cent
+// USDC on-chain, signs the claim with the paying wallet, then resends with `X-Payment: <txHash>` and
+// `X-Payment-Signature: <sig>`; the middleware verifies the transfer on-chain (right amount, from the signer,
+// recent, not replayed) and serves the content. Settles on Circle's Arc by default — sub-cent
 // per request, which cards can't do. No custody, no Agora account required: you're paid directly to payTo.
 import { createPublicClient, http, parseUnits, parseAbiItem, decodeEventLog } from "viem";
 
@@ -16,31 +17,57 @@ const ARC_USDC = "0x3600000000000000000000000000000000000000"; // ERC-20 USDC on
 const ARC_RPC = "https://rpc.testnet.arc.network";
 const ARC_CHAIN_ID = 5042002;
 
-async function verifyPayment(client, txHash, price, payTo, token, consumed, windowBlocks) {
+/** What the payer signs to claim a payment (EIP-191). Binding the tx + payTo means a signature can't be reused
+ *  for another payment or another publisher. */
+const claimMessage = (txHash, payTo) => `Agora paywall: I paid ${String(txHash).toLowerCase()} to ${String(payTo).toLowerCase()}`;
+
+/** Verify the CALLER paid: USDC transfers to payTo, sent by the wallet that signed the claim, recent, unused.
+ *  Without the signature, anyone watching the chain could reuse a real buyer's tx hash before they do. The tx is
+ *  reserved before any await (so two concurrent requests can't both pass) and released if verification fails. */
+async function verifyPayment(client, txHash, signature, price, payTo, token, consumed, windowBlocks) {
   const key = String(txHash).toLowerCase();
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) return { ok: false, reason: "payment must be a 0x transaction hash" };
+  if (!/^0x[0-9a-fA-F]+$/.test(String(signature || ""))) return { ok: false, reason: `missing X-Payment-Signature: sign "${claimMessage(key, payTo)}" with the paying wallet` };
   if (consumed.has(key)) return { ok: false, reason: "payment already used (replay rejected)" };
-  let receipt;
-  try {
-    receipt = await client.getTransactionReceipt({ hash: key });
-  } catch {
-    return { ok: false, reason: "payment tx not found (is it mined?)" };
-  }
-  const head = await client.getBlockNumber();
-  if (head - receipt.blockNumber > BigInt(windowBlocks)) return { ok: false, reason: "payment too old — the replay window has closed" };
-  let paid = 0n;
-  for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== token.toLowerCase()) continue;
-    try {
-      const ev = decodeEventLog({ abi: [TRANSFER], data: log.data, topics: log.topics });
-      if (ev.args.to.toLowerCase() === payTo.toLowerCase()) paid += ev.args.value;
-    } catch {
-      /* not a transfer */
-    }
-  }
-  if (paid < price) return { ok: false, reason: `insufficient payment: got ${paid} units, need ${price}` };
   consumed.add(key);
-  return { ok: true, paid };
+  const fail = (reason) => {
+    consumed.delete(key);
+    return { ok: false, reason };
+  };
+  try {
+    let receipt;
+    try {
+      receipt = await client.getTransactionReceipt({ hash: key });
+    } catch {
+      return fail("payment tx not found (is it mined?)");
+    }
+    if (receipt.status !== "success") return fail("payment tx reverted");
+    const head = await client.getBlockNumber();
+    if (head - receipt.blockNumber > BigInt(windowBlocks)) return fail("payment too old — the replay window has closed");
+    const bySender = new Map();
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== token.toLowerCase()) continue;
+      try {
+        const ev = decodeEventLog({ abi: [TRANSFER], data: log.data, topics: log.topics });
+        if (ev.args.to.toLowerCase() === payTo.toLowerCase()) bySender.set(ev.args.from, (bySender.get(ev.args.from) ?? 0n) + ev.args.value);
+      } catch {
+        /* not a transfer */
+      }
+    }
+    if (bySender.size === 0) return fail("no USDC transfer to payTo in that tx");
+    const message = claimMessage(key, payTo);
+    let paid = 0n;
+    for (const [from, value] of bySender) {
+      // client.verifyMessage handles plain wallets (ECDSA) and smart-contract wallets (ERC-1271)
+      if (await client.verifyMessage({ address: from, message, signature }).catch(() => false)) paid += value;
+    }
+    if (paid === 0n) return fail("signature is not from the wallet that sent this payment");
+    if (paid < price) return fail(`insufficient payment: got ${paid} units, need ${price}`);
+    return { ok: true, paid };
+  } catch (e) {
+    consumed.delete(key);
+    throw e;
+  }
 }
 
 /**
@@ -75,15 +102,17 @@ export function agoraPaywall(opts = {}) {
     payTo: opts.payTo,
     token,
     chainId,
-    how: "transfer >= priceUnits USDC to payTo on this chain, then resend this request with header 'X-Payment: <txHash>'",
+    claimMessage: claimMessage("{txHash}", opts.payTo).replace("{txhash}", "{txHash}"),
+    how: "transfer >= priceUnits USDC to payTo on this chain, sign claimMessage (with {txHash} filled in, lowercase) using the paying wallet, then resend this request with headers 'X-Payment: <txHash>' and 'X-Payment-Signature: <signature>'",
   });
 
   return async function paywall(req, res, next) {
     const payment = req.headers["x-payment"] || req.query?.payment || (req.body && req.body.payment);
+    const signature = req.headers["x-payment-signature"] || req.query?.signature || (req.body && req.body.signature);
     if (!payment) return res.status(402).json({ error: "payment required", terms: terms() });
     let v;
     try {
-      v = await verifyPayment(client, payment, price, opts.payTo, token, consumed, windowBlocks);
+      v = await verifyPayment(client, payment, signature, price, opts.payTo, token, consumed, windowBlocks);
     } catch (e) {
       return res.status(502).json({ error: "could not verify payment on-chain: " + (e?.message || e), terms: terms() });
     }

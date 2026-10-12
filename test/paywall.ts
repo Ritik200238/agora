@@ -51,16 +51,29 @@ async function main() {
 
     // 2. underpayment → 402
     const underTx = (await usdcTransfer(buyerWallet, dep().usdc, publisher.address, usd(0.005))).transactionHash;
-    const under = await getH("/article/1", { "X-Payment": underTx });
+    const claim = (tx: string) => buyer.signMessage({ message: noPay.body.terms.claimMessage.replace("{txHash}", tx.toLowerCase()) });
+    const under = await getH("/article/1", { "X-Payment": underTx, "X-Payment-Signature": await claim(underTx) });
     check("an underpayment is rejected", under.status === 402 && /insufficient/i.test(under.body.error || ""), under.body.error);
 
-    // 3. full on-chain payment unlocks the content
+    // 3. someone who copies the buyer's tx hash off the chain can't use it (no / wrong-wallet signature)
     const payTx = (await usdcTransfer(buyerWallet, dep().usdc, publisher.address, usd(0.01))).transactionHash;
-    const paid = await getH("/article/1", { "X-Payment": payTx });
-    check("a valid USDC payment unlocks the paid content", paid.status === 200 && /PREMIUM/.test(paid.body.body || "") && paid.body.paidTx === payTx, `served article ${paid.body.id}`);
+    const snoop = await getH("/article/1", { "X-Payment": payTx });
+    const thief = privateKeyToAccount(generatePrivateKey());
+    const snoop2 = await getH("/article/1", { "X-Payment": payTx, "X-Payment-Signature": await thief.signMessage({ message: noPay.body.terms.claimMessage.replace("{txHash}", payTx.toLowerCase()) }) });
+    check("a copied tx hash is useless without the payer's signature", snoop.status === 402 && snoop2.status === 402 && /not from the wallet/i.test(snoop2.body.error || ""), `${snoop.status}/${snoop2.status}`);
 
-    // 4. replay protection
-    const replay = await getH("/article/1", { "X-Payment": payTx });
+    // 4. the buyer's signed payment unlocks the content — once, even when sent twice at the same moment
+    const sig = await claim(payTx);
+    const [paid, raced] = await Promise.all([
+      getH("/article/1", { "X-Payment": payTx, "X-Payment-Signature": sig }),
+      getH("/article/1", { "X-Payment": payTx, "X-Payment-Signature": sig }),
+    ]);
+    const wins = [paid, raced].filter((r) => r.status === 200);
+    check("a valid USDC payment unlocks the paid content", wins.length >= 1 && /PREMIUM/.test(wins[0].body.body || "") && wins[0].body.paidTx === payTx, `served article ${wins[0]?.body.id}`);
+    check("two concurrent uses of one payment → only one served", wins.length === 1, `${wins.length} of 2 served`);
+
+    // 5. replay protection
+    const replay = await getH("/article/1", { "X-Payment": payTx, "X-Payment-Signature": sig });
     check("the same payment cannot be replayed", replay.status === 402 && /replay/i.test(replay.body.error || ""), replay.body.error);
   } finally {
     if (server) server.close();
