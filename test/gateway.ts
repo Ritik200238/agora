@@ -48,9 +48,13 @@ async function main() {
     check("services listed with sub-cent prices", svcs.status === 200 && feed?.priceUsdc === "0.000001", `feed = $${feed?.priceUsdc}`);
 
     // 2. open a capped tab (demo credit)
+    const published: string[] = []; // everything the public /api/events feed would broadcast
+    eco.emitter.on("event", (e) => published.push(JSON.stringify(e)));
     const tab = await post("/x402/tab", { capUsdc: 0.1 });
     check("tab opened with pre-funded demo credit", tab.status === 200 && !!tab.body.tabId, `cap = $${tab.body.capUsdc}`);
     const tabId = tab.body.tabId;
+    check("the tab id is an unguessable 128-bit secret, not derived from its address",
+      /^tab_[0-9a-f]{32}$/.test(tabId) && !tabId.includes(String(tab.body.address).slice(2, 10).toLowerCase()), tabId.slice(0, 12) + "…");
 
     // 3. the headline: a $0.000001 nanopayment, settled on-chain
     const c1 = await post(`/x402/tab/${tabId}/call`, { service: "feed" });
@@ -109,6 +113,10 @@ async function main() {
     check("raw x402 replay rejected", replay.status === 402 && /already used/i.test(replay.body.error), replay.body.error);
 
     check("external sales accumulated across tab + raw paths", eco.externalSales >= 3, `externalSales = ${eco.externalSales}`);
+
+    // the public event feed reports tab sales, but never the tab id (a bearer credential)
+    const saleEvents = published.filter((p) => p.includes("x402_sale"));
+    check("public event feed never leaks a spendable tab id", saleEvents.length > 0 && !published.some((p) => p.includes(tabId)), `${saleEvents.length} sale events, leaked=${published.some((p) => p.includes(tabId))}`);
   } finally {
     if (server) server.close();
     chain.stop();

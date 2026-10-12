@@ -218,7 +218,7 @@ async function openTab(){
     if (t.error) throw new Error(t.error);
     TAB = { tabId: t.tabId, capUsdc: +t.capUsdc };
     const card = $('tabCard'); card.classList.remove('empty');
-    $('tabTitle').textContent = 'Tab · ' + t.tabId;
+    $('tabTitle').textContent = 'Tab · ' + t.address.slice(0, 8) + '…'; // the tabId is a spend key — keep it off screen
     $('tabAddr').textContent = t.address;
     $('tabBig').style.display = ''; $('capbarWrap').style.display = ''; $('capMeta').style.display = '';
     updateTab(0, +t.capUsdc);

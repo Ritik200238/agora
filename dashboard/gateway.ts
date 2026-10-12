@@ -13,7 +13,7 @@
 // Every purchase here is counted as REAL externalVolume (distinct from the agents' internal wash volume).
 import express, { type Express } from "express";
 import { resolveMx } from "node:dns/promises";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomBytes } from "node:crypto";
 import { keccak256, toHex, parseAbiItem, decodeEventLog, parseEther } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { publicClient, walletFor, activeChain, type Wallet } from "../shared/chain";
@@ -384,7 +384,8 @@ function publicService(s: RegisteredService, bondUnits: bigint = 0n) {
 }
 
 interface Tab {
-  id: string;
+  id: string; // SECRET bearer token — whoever holds it can spend the tab. Never log or broadcast it.
+  label: string; // public, non-spendable handle (from the tab wallet's address) for feeds and logs
   wallet: Wallet;
   cap: bigint;
   spent: bigint;
@@ -550,8 +551,11 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
       // fund the tab: demo USDC credit + a little gas (local ETH) so it can send the pay-per-call transfers
       await faucet.sendTransaction({ account: faucet.account, chain: activeChain, to: addr, value: parseEther("1") });
       await usdcMint(faucet, dep().usdc, addr, cap);
-      const id = "tab_" + addr.slice(2, 10);
-      tabs.set(id, { id, wallet, cap, spent: 0n, items: [], createdAt: new Date().toISOString() });
+      // 128-bit random id: the tab id is the only credential needed to spend it, so it must be unguessable
+      // and never derived from public data (it used to be the first 8 hex chars of the tab's address).
+      const id = "tab_" + randomBytes(16).toString("hex");
+      const label = "tab:" + addr.slice(2, 8);
+      tabs.set(id, { id, label, wallet, cap, spent: 0n, items: [], createdAt: new Date().toISOString() });
       res.json({
         tabId: id,
         address: addr,
@@ -614,7 +618,7 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
     }
     tab.spent += price;
     tab.items.push({ service: serviceId, priceUsdc: fmtUsd(price), priceUnits: price.toString(), tx, at: new Date().toISOString() });
-    eco.recordExternalSale(price, serviceId, tab.id);
+    eco.recordExternalSale(price, serviceId, tab.label); // public label only — the id would let anyone spend the tab
     store.addExternal(price);
     if (registered) store.recordCall(registered.id, price, true);
     res.json({
