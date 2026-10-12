@@ -13,8 +13,7 @@ import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "../dashboard/gateway";
 import { arcMarket } from "../dashboard/market";
 import { ArcRail, ArcTabFunder, ArcTabPool } from "../dashboard/arcrail";
-import { arcWallet, arcPublicClient, ARC_RPC } from "../shared/arc";
-import { arcTestnet } from "../shared/chain";
+import { arcWallet, arcPublicClient, arcChain, ARC_RPC, GATEWAY_CHAIN, arcOperatorKey } from "../shared/arc";
 
 process.env.AGORA_ALLOW_PRIVATE_SELLER_URLS = "1"; // the test's third-party seller runs on localhost
 let fails = 0;
@@ -30,7 +29,7 @@ const get = (p: string) => fetch(base + p).then(async (r) => ({ status: r.status
 const ERC20 = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "v", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 
 async function main() {
-  const opKey = process.env.PRIVATE_KEY as `0x${string}` | undefined;
+  const opKey = arcOperatorKey(); // PRIVATE_KEY on testnet, MAINNET_PRIVATE_KEY on mainnet (ARC_NETWORK)
   if (!opKey) {
     console.log("⏭️  ARC GATEWAY TEST SKIPPED — set PRIVATE_KEY (a funded Arc Testnet key) to run it.");
     process.exit(0);
@@ -76,7 +75,7 @@ async function main() {
     const c3 = await post(`/x402/tab/${tab.body.tabId}/call`, { service: bad.body.service.id, input: {} });
     const bill = await get(`/x402/tab/${tab.body.tabId}`);
     check("a failing seller is never settled — the tab is not charged", c3.status === 502 && c3.body.charged === false && bill.body.spentUsdc === "0.000501", `spent ${bill.body.spentUsdc}`);
-    const buyerGw = new GatewayClient({ chain: "arcTestnet", privateKey: generatePrivateKey(), rpcUrl: ARC_RPC });
+    const buyerGw = new GatewayClient({ chain: GATEWAY_CHAIN, privateKey: generatePrivateKey(), rpcUrl: ARC_RPC });
     await new Promise((r) => setTimeout(r, 2000));
     const tabBal = BigInt((await buyerGw.getBalances(tab.body.address)).gateway.available);
     check("the tab's real Gateway balance moved by exactly the two delivered calls", tabBal === 10_000n - 501n, `available ${tabBal}`);
@@ -89,9 +88,9 @@ async function main() {
     const agentKey = generatePrivateKey();
     const agent = privateKeyToAccount(agentKey);
     const op = arcWallet(opKey);
-    const fund = await op.writeContract({ account: op.account, chain: arcTestnet, address: "0x3600000000000000000000000000000000000000", abi: ERC20, functionName: "transfer", args: [agent.address, parseUnits("0.02", 6)] });
+    const fund = await op.writeContract({ account: op.account, chain: arcChain, address: "0x3600000000000000000000000000000000000000", abi: ERC20, functionName: "transfer", args: [agent.address, parseUnits("0.02", 6)] });
     await arcPublicClient.waitForTransactionReceipt({ hash: fund });
-    const agentClient = new GatewayClient({ chain: "arcTestnet", privateKey: agentKey, rpcUrl: ARC_RPC });
+    const agentClient = new GatewayClient({ chain: GATEWAY_CHAIN, privateKey: agentKey, rpcUrl: ARC_RPC });
     await agentClient.deposit("0.01");
     for (let i = 0; i < 60; i++) {
       if (BigInt((await agentClient.getBalances()).gateway.available) >= 10_000n) break;

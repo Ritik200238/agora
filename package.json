@@ -22,6 +22,8 @@
     "chain": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
     "deploy:arc": "hardhat run scripts/deploy.js --network arcTestnet",
+    "deploy:arc-mainnet": "hardhat run scripts/deploy.js --network arcMainnet",
+    "gen:arc-mainnet-key": "tsx scripts/gen-arc-mainnet-key.ts",
     "arc:status": "tsx scripts/arc-status.ts",
     "arc:demo": "tsx scripts/arc-demo.ts",
     "gateway:arc": "tsx scripts/circle-gateway-arc.ts",

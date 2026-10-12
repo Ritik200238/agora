@@ -6,8 +6,7 @@ import type { PublicClient } from "viem";
 import { ABIS } from "../shared/abis";
 import { dep } from "../shared/config";
 import { publicClient, activeChain, type Wallet } from "../shared/chain";
-import { arcPublicClient, arcWallet, arcDep, arcTxUrl, ARC_CHAIN_ID } from "../shared/arc";
-import { arcTestnet } from "../shared/chain";
+import { arcPublicClient, arcWallet, arcDep, arcTxUrl, arcChain, ARC_CHAIN_ID } from "../shared/arc";
 
 export interface Market {
   kind: "local" | "arc";
@@ -62,10 +61,10 @@ export function localMarket(operator: Wallet): Market {
   return build("local", publicClient as PublicClient, operator, d, activeChain);
 }
 
-/** Marketplace on real Arc Testnet — the operator is the funded deployer key (the contracts' manager). */
+/** Marketplace on real Arc (testnet or mainnet, per ARC_NETWORK) — the operator is the funded deployer key (the contracts' manager). */
 export function arcMarket(operatorKey: `0x${string}`): Market {
   const d = arcDep();
-  const m = build("arc", arcPublicClient, arcWallet(operatorKey), d, arcTestnet);
+  const m = build("arc", arcPublicClient, arcWallet(operatorKey), d, arcChain);
   if (m.chainId !== ARC_CHAIN_ID) throw new Error("arc market misconfigured");
   return m;
 }

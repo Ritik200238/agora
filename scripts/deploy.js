@@ -20,7 +20,7 @@ async function deployAll() {
 
   let usdcAddr;
   let usdcIsMock = false;
-  if (network.name === "arcTestnet") {
+  if (network.name === "arcTestnet" || network.name === "arcMainnet") {
     usdcAddr = process.env.ARC_USDC || ARC_USDC;
   } else {
     const mock = await dep("MockUSDC");

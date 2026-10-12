@@ -3,6 +3,7 @@ artifacts
 cache
 deployments/*
 !deployments/arcTestnet.json
+!deployments/arcMainnet.json
 .git
 .github
 circle-agent

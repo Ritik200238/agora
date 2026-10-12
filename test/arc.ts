@@ -5,7 +5,7 @@ import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { GatewayClient } from "@circle-fin/x402-batching/client";
 import { ArcRail, ArcTabFunder } from "../dashboard/arcrail";
 import { arcMarket } from "../dashboard/market";
-import { ARC_RPC } from "../shared/arc";
+import { ARC_RPC, GATEWAY_CHAIN, arcOperatorKey } from "../shared/arc";
 
 let fails = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -15,7 +15,7 @@ function check(name: string, cond: boolean, detail = "") {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const opKey = process.env.PRIVATE_KEY as `0x${string}` | undefined;
+  const opKey = arcOperatorKey(); // PRIVATE_KEY on testnet, MAINNET_PRIVATE_KEY on mainnet (ARC_NETWORK)
   if (!opKey) {
     console.log("⏭️  ARC LIVE TEST SKIPPED — set PRIVATE_KEY (a funded Arc Testnet key) to run it.");
     process.exit(0);
@@ -35,7 +35,7 @@ async function main() {
   const t0 = Date.now();
   const tab = await funder.open(10_000n); // $0.01 cap
   check("a demo tab opens: funded on Arc + real Gateway deposit, handed out only once credited", /^0x[0-9a-f]{64}$/i.test(tab.depositTx), `deposit ${tab.depositTx.slice(0, 12)}… ready in ${Date.now() - t0}ms`);
-  const buyer = new GatewayClient({ chain: "arcTestnet", privateKey: tab.privateKey, rpcUrl: ARC_RPC });
+  const buyer = new GatewayClient({ chain: GATEWAY_CHAIN, privateKey: tab.privateKey, rpcUrl: ARC_RPC });
   const bal0 = BigInt((await buyer.getBalances()).gateway.available);
   check("the tab's Gateway balance is its cap", bal0 === 10_000n, `available=${bal0}`);
 

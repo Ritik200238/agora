@@ -10,6 +10,7 @@ import { buildSociety } from "../agents/society";
 import { Economy } from "../orchestrator/economy";
 import { mountGateway, type GatewayOptions } from "./gateway";
 import { arcMarket } from "./market";
+import { arcOperatorKey, IS_ARC_MAINNET } from "../shared/arc";
 import { ArcRail, ArcTabFunder, ArcTabPool } from "./arcrail";
 import { usd, fmtUsd } from "../shared/usdc";
 import { renderNotFound, publicBase } from "./pages";
@@ -25,15 +26,15 @@ const SELFTEST = !!process.env.SELFTEST;
 /** Marketplace settlement: real Arc (Circle Gateway) when MARKET_CHAIN=arc and a funded operator key is set. */
 async function buildMarket(): Promise<GatewayOptions> {
   if (process.env.MARKET_CHAIN !== "arc") return {};
-  const key = process.env.PRIVATE_KEY as `0x${string}` | undefined;
-  if (!key) throw new Error("MARKET_CHAIN=arc needs PRIVATE_KEY (the funded Arc operator / contract manager key)");
+  const key = arcOperatorKey(); // testnet: PRIVATE_KEY · mainnet (ARC_NETWORK=mainnet): MAINNET_PRIVATE_KEY
+  if (!key) throw new Error(`MARKET_CHAIN=arc needs ${IS_ARC_MAINNET ? "MAINNET_PRIVATE_KEY" : "PRIVATE_KEY"} (the funded Arc operator / contract manager key)`);
   const market = arcMarket(key);
   const rail = await new ArcRail(key).init();
   const capUnits = usd(Number(process.env.ARC_TAB_CAP_USDC || 0.01));
   const budgetUnits = usd(Number(process.env.ARC_TAB_DAILY_BUDGET_USDC || 0.5));
   const floorUnits = usd(Number(process.env.ARC_OPERATOR_FLOOR_USDC || 5));
   const tabs = new ArcTabPool(new ArcTabFunder(key, budgetUnits, undefined, undefined, floorUnits), capUnits, Number(process.env.ARC_TAB_POOL || 2));
-  console.log(`• marketplace settles on ARC via Circle Gateway (operator ${market.operator.account.address.slice(0, 10)}…, demo tabs $${fmtUsd(capUnits)} each, $${fmtUsd(budgetUnits)}/day)`);
+  console.log(`• marketplace settles on ARC ${IS_ARC_MAINNET ? "MAINNET (real USDC)" : "Testnet"} via Circle Gateway (operator ${market.operator.account.address.slice(0, 10)}…, demo tabs $${fmtUsd(capUnits)} each, $${fmtUsd(budgetUnits)}/day)`);
   return { market, arc: { rail, tabs } };
 }
 
@@ -72,7 +73,7 @@ async function main() {
   });
 
   app.get("/api/info", (_req, res) =>
-    res.json({ network: process.env.AGORA_NETWORK || "localhost", market: marketKind, arcDeployment: existsSync(join(__dirname, "..", "deployments", "arcTestnet.json")), agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
+    res.json({ network: process.env.AGORA_NETWORK || "localhost", market: marketKind, arcNetwork: IS_ARC_MAINNET ? "mainnet" : "testnet", arcDeployment: existsSync(join(__dirname, "..", "deployments", IS_ARC_MAINNET ? "arcMainnet.json" : "arcTestnet.json")), agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
   );
   // shows a caller only their OWN connection headers — used to verify which hop the proxy chain trusts
   app.get("/api/whoami", (req, res) =>

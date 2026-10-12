@@ -5,6 +5,9 @@ require("dotenv").config();
 
 const ARC_RPC = process.env.ARC_TESTNET_RPC || "https://rpc.testnet.arc.network";
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
+const ARC_MAINNET_RPC = process.env.ARC_MAINNET_RPC || "https://rpc.mainnet.arc.io";
+// a DEDICATED mainnet key (real USDC) — never the testnet key. npm run gen:arc-mainnet-key creates it.
+const MAINNET_PRIVATE_KEY = process.env.MAINNET_PRIVATE_KEY;
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -27,6 +30,12 @@ module.exports = {
       url: ARC_RPC,
       chainId: 5042002,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+    },
+    // Arc MAINNET (chain 5042) — real USDC pays gas. Verified: rpc.mainnet.arc.io returns chainId 0x13b2.
+    arcMainnet: {
+      url: ARC_MAINNET_RPC,
+      chainId: 5042,
+      accounts: MAINNET_PRIVATE_KEY ? [MAINNET_PRIVATE_KEY] : [],
     },
   },
   paths: {

@@ -4,6 +4,7 @@ cache/
 typechain-types/
 deployments/*
 !deployments/arcTestnet.json
+!deployments/arcMainnet.json
 .env
 .env.local
 *.log
@@ -31,3 +32,4 @@ circle-agent/
 .data/
 
 .vercel
+.gstack/

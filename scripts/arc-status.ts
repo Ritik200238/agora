@@ -1,43 +1,35 @@
-// Read the Arc deployer's balances over the Canteen RPC: native USDC (gas, 18dp) + ERC-20 USDC (6dp).
+// The Arc operator's balances: native USDC (pays gas, 18dp) + ERC-20 USDC (6dp) + its Circle Gateway balance.
+// Testnet by default; ARC_NETWORK=mainnet for Arc mainnet (uses MAINNET_PRIVATE_KEY).
 import "dotenv/config";
-import { createPublicClient, http, defineChain, formatUnits, formatEther } from "viem";
+import { formatUnits, formatEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { GatewayClient } from "@circle-fin/x402-batching/client";
+import { arcPublicClient, arcOperatorKey, IS_ARC_MAINNET, ARC_RPC, GATEWAY_CHAIN } from "../shared/arc";
 
-const arc = defineChain({
-  id: 5042002,
-  name: "Arc Testnet",
-  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: [process.env.ARC_TESTNET_RPC!] } },
-});
-const USDC = "0x3600000000000000000000000000000000000000" as const;
-const ERC20 = [
-  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
-  { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
-] as const;
+const ERC20 = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
 
 async function main() {
-  if (!process.env.ARC_TESTNET_RPC) throw new Error("no ARC_TESTNET_RPC in .env");
-  const pk = process.env.PRIVATE_KEY as `0x${string}`;
-  if (!pk) throw new Error("no PRIVATE_KEY in .env");
+  const pk = arcOperatorKey();
+  if (!pk) throw new Error(`no ${IS_ARC_MAINNET ? "MAINNET_PRIVATE_KEY" : "PRIVATE_KEY"} in .env`);
   const acct = privateKeyToAccount(pk);
-  const pc = createPublicClient({ chain: arc, transport: http() });
-  const [chainId, block, native] = await Promise.all([pc.getChainId(), pc.getBlockNumber(), pc.getBalance({ address: acct.address })]);
-  console.log("deployer :", acct.address);
-  console.log("chainId  :", chainId, "| block", block.toString());
-  console.log("native   :", formatEther(native), "USDC  (gas token, 18dp) — this is what pays gas");
+  const [chainId, block, native, erc20] = await Promise.all([
+    arcPublicClient.getChainId(),
+    arcPublicClient.getBlockNumber(),
+    arcPublicClient.getBalance({ address: acct.address }),
+    arcPublicClient.readContract({ address: "0x3600000000000000000000000000000000000000", abi: ERC20, functionName: "balanceOf", args: [acct.address] }),
+  ]);
+  console.log("network  :", IS_ARC_MAINNET ? "Arc MAINNET" : "Arc Testnet", "| chainId", chainId, "| block", block.toString());
+  console.log("operator :", acct.address);
+  console.log("native   :", formatEther(native), "USDC  (gas token, 18dp)");
+  console.log("erc20    :", formatUnits(erc20 as bigint, 6), "USDC @ 0x3600…0000 (6dp)");
   try {
-    const [bal, dec, sym] = await Promise.all([
-      pc.readContract({ address: USDC, abi: ERC20, functionName: "balanceOf", args: [acct.address] }) as Promise<bigint>,
-      pc.readContract({ address: USDC, abi: ERC20, functionName: "decimals" }) as Promise<number>,
-      pc.readContract({ address: USDC, abi: ERC20, functionName: "symbol" }) as Promise<string>,
-    ]);
-    console.log(`erc20    : ${formatUnits(bal, Number(dec))} ${sym} @ ${USDC} (${dec}dp)`);
+    const gw = await new GatewayClient({ chain: GATEWAY_CHAIN, privateKey: pk, rpcUrl: ARC_RPC }).getBalances();
+    console.log("gateway  :", gw.gateway.formattedAvailable, "USDC available in Circle Gateway");
   } catch (e) {
-    console.log("erc20    : (no ERC-20 at 0x3600… / read failed:", String((e as Error).message).slice(0, 90), ")");
+    console.log("gateway  : (unavailable)", (e as Error).message.slice(0, 80));
   }
 }
 main().catch((e) => {
-  console.error("FAILED:", (e as any).shortMessage || (e as Error).message);
+  console.error(e.message || e);
   process.exit(1);
 });

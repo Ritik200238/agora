@@ -14,10 +14,9 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { parseAbiItem, formatUnits } from "viem";
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 import { BatchEvmScheme, GatewayClient } from "@circle-fin/x402-batching/client";
-import { arcPublicClient, arcWallet, ARC_NETWORK, ARC_RPC } from "../shared/arc";
-import { arcTestnet } from "../shared/chain";
+import { arcPublicClient, arcWallet, arcChain, ARC_NETWORK, ARC_RPC, GATEWAY_CHAIN, DEFAULT_FACILITATOR } from "../shared/arc";
 
-export const FACILITATOR_URL = process.env.GATEWAY_API || "https://gateway-api-testnet.circle.com";
+export const FACILITATOR_URL = process.env.GATEWAY_API || DEFAULT_FACILITATOR;
 const SCHEME = "exact";
 const BATCH_NAME = "GatewayWalletBatched";
 const BATCH_VERSION = "1";
@@ -58,7 +57,7 @@ export class ArcRail {
   private reader: GatewayClient; // read-only Gateway API access (balances, transfers) — never signs anything
 
   constructor(readerKey: `0x${string}` = generatePrivateKey()) {
-    this.reader = new GatewayClient({ chain: "arcTestnet", privateKey: readerKey, rpcUrl: ARC_RPC });
+    this.reader = new GatewayClient({ chain: GATEWAY_CHAIN, privateKey: readerKey, rpcUrl: ARC_RPC });
   }
 
   /** A payer's spendable Gateway balance (atomic units). */
@@ -199,7 +198,7 @@ export class ArcTabFunder {
      *  demo tabs from draining the operator (which also pays for slashes and claim payouts). */
     readonly operatorFloorUnits = 5_000_000n
   ) {
-    this.reader = new GatewayClient({ chain: "arcTestnet", privateKey: operatorKey, rpcUrl: ARC_RPC });
+    this.reader = new GatewayClient({ chain: GATEWAY_CHAIN, privateKey: operatorKey, rpcUrl: ARC_RPC });
   }
 
   private rollDay() {
@@ -228,11 +227,11 @@ export class ArcTabFunder {
       const privateKey = generatePrivateKey();
       const address = privateKeyToAccount(privateKey).address;
       const op = arcWallet(this.operatorKey);
-      const fundTx = await op.writeContract({ account: op.account, chain: arcTestnet, address: "0x3600000000000000000000000000000000000000", abi: [ERC20_TRANSFER], functionName: "transfer", args: [address, cost] });
+      const fundTx = await op.writeContract({ account: op.account, chain: arcChain, address: "0x3600000000000000000000000000000000000000", abi: [ERC20_TRANSFER], functionName: "transfer", args: [address, cost] });
       const r = await arcPublicClient.waitForTransactionReceipt({ hash: fundTx });
       if (r.status !== "success") throw new Error("funding transfer reverted");
       funded = true; // from here the money has left the operator — it stays counted against today's budget
-      const client = new GatewayClient({ chain: "arcTestnet", privateKey, rpcUrl: ARC_RPC });
+      const client = new GatewayClient({ chain: GATEWAY_CHAIN, privateKey, rpcUrl: ARC_RPC });
       const dep = await client.deposit(formatUnits(capUnits, 6));
       const deadline = Date.now() + this.creditTimeoutMs;
       for (;;) {
