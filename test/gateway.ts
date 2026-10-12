@@ -8,6 +8,8 @@ import { Economy } from "../orchestrator/economy";
 import { mountGateway } from "../dashboard/gateway";
 import { fmtUsd, usdcTransfer } from "../shared/usdc";
 import { dep } from "../shared/config";
+import { walletFor } from "../shared/chain";
+import { generatePrivateKey } from "viem/accounts";
 
 let fails = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -107,9 +109,29 @@ async function main() {
     check("raw x402 returns 402 + terms before payment", probe.status === 402 && !!probe.body.terms?.payTo, `status ${probe.status}`);
     const buyer = society.byRole("consumer")[0];
     const rcpt = await usdcTransfer(buyer.wallet, dep().usdc, probe.body.terms.payTo, BigInt(probe.body.terms.priceUnits));
-    const served = await post("/x402/feed", { payment: rcpt.transactionHash, input: {} });
-    check("raw x402 serves after on-chain payment proof", served.status === 200 && served.body.result?.metric === "gdp_usdc", `status ${served.status}`);
-    const replay = await post("/x402/feed", { payment: rcpt.transactionHash, input: {} });
+    const claimFor = (svc: string, tx: string) => probe.body.terms.claimMessage.replace("feed", svc).replace("{txHash}", tx.toLowerCase());
+    const buyerSig = await buyer.wallet.signMessage({ account: buyer.wallet.account, message: claimFor("feed", rcpt.transactionHash) });
+
+    // a snooper who copies the tx hash off the chain can't claim it: no signature, or a signature from the wrong wallet
+    const snoop = await post("/x402/feed", { payment: rcpt.transactionHash, input: {} });
+    const outsider = walletFor(generatePrivateKey());
+    const snoopSig = await outsider.signMessage({ account: outsider.account, message: claimFor("feed", rcpt.transactionHash) });
+    const snoop2 = await post("/x402/feed", { payment: rcpt.transactionHash, signature: snoopSig, input: {} });
+    check("a copied tx hash is useless without the payer's signature", snoop.status === 402 && snoop2.status === 402 && /not from the wallet/i.test(snoop2.body.error), `${snoop.status}/${snoop2.status}: ${snoop2.body.error}`);
+
+    // the buyer's own signature can't be stretched to a pricier service with the same payment
+    const upsell = await post("/x402/trust", { payment: rcpt.transactionHash, signature: buyerSig, input: { agent: "Grift" } });
+    check("a payer signature is bound to the service it was made for", upsell.status === 402, `status ${upsell.status}`);
+
+    // the real buyer is served — and two concurrent claims of the same payment can't both win
+    const [served, raced] = await Promise.all([
+      post("/x402/feed", { payment: rcpt.transactionHash, signature: buyerSig, input: {} }),
+      post("/x402/feed", { payment: rcpt.transactionHash, signature: buyerSig, input: {} }),
+    ]);
+    const wins = [served, raced].filter((r) => r.status === 200);
+    check("raw x402 serves the signed payer after on-chain payment proof", wins.length >= 1 && wins[0].body.result?.metric === "gdp_usdc", `statuses ${served.status}/${raced.status}`);
+    check("concurrent double-spend of one payment is refused", wins.length === 1, `${wins.length} of 2 concurrent claims served`);
+    const replay = await post("/x402/feed", { payment: rcpt.transactionHash, signature: buyerSig, input: {} });
     check("raw x402 replay rejected", replay.status === 402 && /already used/i.test(replay.body.error), replay.body.error);
 
     check("external sales accumulated across tab + raw paths", eco.externalSales >= 3, `externalSales = ${eco.externalSales}`);

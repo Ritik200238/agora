@@ -70,10 +70,12 @@ export async function payAndFetch({ baseUrl, service, input = {}, walletClient, 
     args: [t.payTo, BigInt(t.priceUnits)],
   });
   await publicClient.waitForTransactionReceipt({ hash });
+  // prove this payment is ours: sign the claim message with the wallet that paid (stops tx-hash snooping)
+  const signature = await walletClient.signMessage({ account, message: t.claimMessage.replace("{txHash}", hash.toLowerCase()) });
   const r = await fetch(`${base}/x402/${service}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ payment: hash, input }),
+    body: JSON.stringify({ payment: hash, signature, input }),
   });
   const j = await r.json();
   if (j.error) throw new Error(j.error);

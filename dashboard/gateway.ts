@@ -758,26 +758,31 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
         token: dep().usdc,
         chainId: activeChain.id,
         sinceBlock: head.toString(),
-        how: "transfer >= priceUnits USDC to payTo, then POST { payment: <txHash>, input } to this URL",
+        claimMessage: paymentClaimMessage(svc.id, "{txHash}").replace("{txhash}", "{txHash}"), // sign with {txHash} filled in (lowercase)
+        how: "transfer >= priceUnits USDC to payTo from your wallet, sign claimMessage with that same wallet (EIP-191 personal_sign), then POST { payment: <txHash>, signature, input } to this URL",
       },
     });
   });
 
-  // POST /x402/:service { payment: txHash, input } -> verify on-chain, then serve
+  // POST /x402/:service { payment: txHash, signature, input } -> verify on-chain + payer signature, then serve
   r.post("/:service", async (req, res) => {
     const svc = services[req.params.service];
     if (!svc) return res.status(404).json({ error: "unknown service", services: Object.keys(services) });
-    const payment = req.body?.payment;
-    if (!payment) return res.status(402).json({ error: "payment required: POST { payment: <txHash>, input }" });
+    const payment = String(req.body?.payment ?? "");
+    if (!payment) return res.status(402).json({ error: "payment required: POST { payment: <txHash>, signature, input }" });
+    if (!/^0x[0-9a-fA-F]{64}$/.test(payment)) return res.status(400).json({ error: "payment must be a 0x transaction hash" });
+    const signature = String(req.body?.signature ?? "");
+    if (!signature) return res.status(402).json({ error: "signature required: sign the claim message with the wallet that paid", sign: paymentClaimMessage(svc.id, payment) });
 
-    const v = await verifyPayment(String(payment), svc.price, payTo, consumed);
+    const v = await verifyPayment(payment, signature, svc.id, svc.price, payTo, consumed);
     if (!v.ok) return res.status(402).json({ error: v.reason });
 
     let result: any;
     try {
       result = await svc.run(req.body?.input, eco);
     } catch (e) {
-      return res.status(400).json({ error: String((e as Error)?.message ?? e) });
+      consumed.delete(payment.toLowerCase()); // nothing was delivered — the same payment can be retried with fixed input
+      return res.status(400).json({ error: String((e as Error)?.message ?? e), charged: false });
     }
     eco.recordExternalSale(svc.price, svc.id, "agent:" + String(payment).slice(0, 10));
     store.addExternal(svc.price);
@@ -809,35 +814,63 @@ export function mountGateway(app: Express, eco: Economy, society: Society): void
   console.log(`• pay-per-use gateway mounted at /x402 (${Object.keys(services).length} services, payTo ${payTo.slice(0, 8)}…); SEO pages at /s/:id + /sitemap.xml`);
 }
 
-/** Verify a real on-chain USDC payment: a transfer to payTo of >= price, mined recently, not already used. */
+/** What the payer signs to claim a payment for a service. Binding the service id stops one tx being claimed
+ *  for a pricier service; binding the tx stops the signature being reused for another payment. */
+function paymentClaimMessage(serviceId: string, txHash: string) {
+  return `Agora x402: I paid ${txHash.toLowerCase()} for ${serviceId}`;
+}
+
+/** Verify a real on-chain USDC payment BY THE CALLER: transfers to payTo of >= price, mined recently, sent from
+ *  a wallet that signed the claim message, and not already used.
+ *  - The signature matters because payTo (the house producer) receives a constant stream of transfers — from the
+ *    agent economy, from tabs, from other buyers. Without it, anyone could read a stranger's tx hash off the
+ *    chain and get served for free, or front-run the real buyer into "replay rejected".
+ *  - The tx is reserved in `consumed` BEFORE any await, so two concurrent requests with the same hash can't both
+ *    pass the check; the reservation is released if verification fails. */
 async function verifyPayment(
   txHash: string,
+  signature: string,
+  serviceId: string,
   price: bigint,
   payTo: `0x${string}`,
   consumed: Set<string>
 ): Promise<{ ok: boolean; reason?: string }> {
   const key = txHash.toLowerCase();
   if (consumed.has(key)) return { ok: false, reason: "payment already used (replay rejected)" };
+  consumed.add(key);
+  const fail = (reason: string) => {
+    consumed.delete(key);
+    return { ok: false, reason };
+  };
   let receipt;
   try {
     receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
   } catch {
-    return { ok: false, reason: "payment tx not found" };
+    return fail("payment tx not found");
   }
+  if (receipt.status !== "success") return fail("payment tx reverted");
   const head = await publicClient.getBlockNumber();
-  if (head - receipt.blockNumber > 500n) return { ok: false, reason: "payment too old — the replay window has closed" };
-  let paid = 0n;
+  if (head - receipt.blockNumber > 500n) return fail("payment too old — the replay window has closed");
+  const bySender = new Map<string, bigint>();
   for (const log of receipt.logs) {
     if (log.address.toLowerCase() !== dep().usdc.toLowerCase()) continue;
     try {
       const ev = decodeEventLog({ abi: [TRANSFER], data: log.data, topics: log.topics });
-      const a = ev.args as { to: `0x${string}`; value: bigint };
-      if (a.to.toLowerCase() === payTo.toLowerCase()) paid += a.value;
+      const a = ev.args as { from: `0x${string}`; to: `0x${string}`; value: bigint };
+      if (a.to.toLowerCase() === payTo.toLowerCase()) bySender.set(a.from, (bySender.get(a.from) ?? 0n) + a.value);
     } catch {
       /* not a transfer */
     }
   }
-  if (paid < price) return { ok: false, reason: `insufficient payment: paid ${paid} units, need ${price}` };
-  consumed.add(key);
+  if (bySender.size === 0) return fail("no USDC transfer to payTo in that tx");
+  const message = paymentClaimMessage(serviceId, txHash);
+  let paid = 0n;
+  for (const [from, value] of bySender) {
+    // publicClient.verifyMessage covers plain wallets (ECDSA) and smart-contract wallets (ERC-1271)
+    const mine = await publicClient.verifyMessage({ address: from as `0x${string}`, message, signature: signature as `0x${string}` }).catch(() => false);
+    if (mine) paid += value;
+  }
+  if (paid === 0n) return fail("signature is not from the wallet that sent this payment");
+  if (paid < price) return fail(`insufficient payment: paid ${paid} units, need ${price}`);
   return { ok: true };
 }
