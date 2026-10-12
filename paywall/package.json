@@ -5,7 +5,8 @@
   "type": "module",
   "main": "index.js",
   "exports": { ".": "./index.js" },
-  "files": ["index.js", "README.md"],
+  "files": ["index.js", "index.d.ts", "README.md"],
+  "types": "index.d.ts",
   "keywords": [
     "x402",
     "paywall",

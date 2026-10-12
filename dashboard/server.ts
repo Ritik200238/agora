@@ -88,7 +88,8 @@ async function main() {
     res.status(404).type("html").send(renderNotFound(publicBase(req)));
   });
 
-  await new Promise<void>((resolve) => app.listen(PORT, resolve));
+  // Express 5 passes a listen error (e.g. port in use) to the callback — fail loudly instead of hanging
+  await new Promise<void>((resolve, reject) => app.listen(PORT, (err?: Error) => (err ? reject(err) : resolve())));
   console.log(`\n🏛️  Agora dashboard live → http://localhost:${PORT}\n`);
 
   // seed the marketplace with real, bonded house services so it's never empty (local/demo chain only)

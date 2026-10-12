@@ -15,5 +15,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx hardhat compile
+      - run: npm run typecheck
       # contract tests (22) + full end-to-end economy (boots a real local chain, asserts on-chain state)
       - run: npm test

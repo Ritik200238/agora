@@ -113,8 +113,9 @@ export async function postJob(w: Wallet, p: PostJobParams): Promise<bigint> {
   for (const log of receipt.logs) {
     if (log.address.toLowerCase() !== dep().jobBoard.toLowerCase()) continue;
     try {
-      const ev = decodeEventLog({ abi: ABIS.JobBoard, data: log.data, topics: log.topics });
-      if (ev.eventName === "JobPosted") return (ev.args as any).jobId as bigint;
+      // ABIS are loaded from JSON at runtime, so viem can't infer the event union — narrow it by name
+      const ev = decodeEventLog({ abi: ABIS.JobBoard, data: log.data, topics: log.topics }) as { eventName?: string; args?: any };
+      if (ev.eventName === "JobPosted") return ev.args.jobId as bigint;
     } catch {
       /* not our event */
     }
