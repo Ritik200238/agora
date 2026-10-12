@@ -54,6 +54,10 @@ async function main() {
   app.get("/api/info", (_req, res) =>
     res.json({ network: process.env.AGORA_NETWORK || "localhost", agents: society.agents.length, tickMs: TICK_MS, store: store.health() })
   );
+  // shows a caller only their OWN connection headers — used to verify which hop the proxy chain trusts
+  app.get("/api/whoami", (req, res) =>
+    res.json({ socket: req.socket.remoteAddress, forwardedFor: req.headers["x-forwarded-for"] ?? null, cfConnectingIp: req.headers["cf-connecting-ip"] ?? null, trueClientIp: req.headers["true-client-ip"] ?? null })
+  );
   app.get("/api/snapshot", async (_req, res) => res.json(await eco.snapshot()));
   app.get("/api/job/:id", async (req, res) => {
     try {
