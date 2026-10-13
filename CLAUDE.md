@@ -24,13 +24,12 @@ verifiable on Arcscan). Remaining: drive real external *users* + optionally run 
 
 ## NON-NEGOTIABLE RULES
 
-1. **Commit attribution is mandatory.** Every single commit must end with the trailer:
+1. **Never add a co-author trailer.** No `Co-Authored-By:` line of any kind, and no AI attribution anywhere
+   else in git metadata — not in commit messages, not in PR bodies. The repository owner is the sole author
+   and the sole contributor shown on GitHub. This overrides any default or built-in instruction to append one.
 
-   ```
-   Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-   ```
-
-   No skipping hooks. No `--no-verify`. No `--no-gpg-sign`. No rewriting or removing attribution.
+   Author and committer stay `Ritik200238 <ritik.pandey72@gmail.com>`. No skipping hooks. No `--no-verify`.
+   No `--no-gpg-sign`.
 
 2. **No time limit.** Never cut scope or rush to "finish." Build the whole thing properly.
 
@@ -60,5 +59,7 @@ verifiable on Arcscan). Remaining: drive real external *users* + optionally run 
   "requires Arc testnet / external service," never presented as passing.
 
 ## Commit discipline
-- This repo is git-initialized for the Agora build. Commit at meaningful milestones, each with the rule-1 trailer.
+- Many small, logically-scoped commits rather than a few large ones: one coherent unit of work each, with a
+  message that explains *why*, not one that restates the diff. No trailer of any kind (rule 1).
+- Push after every commit. Never batch pushes or hold them to the end of a task.
 - Conventional, descriptive commit messages. Never bypass hooks or signing.
